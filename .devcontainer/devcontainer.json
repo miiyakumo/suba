@@ -1,0 +1,42 @@
+{
+  "name": "comix-devcontainer",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "rustup show",
+  "updateRemoteUserUID": true,
+  "postStartCommand": "git config --global --add safe.directory '*'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        "serayuzgur.crates",
+        "Gruntfuggly.todo-tree"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "fish",
+        "terminal.integrated.profiles.linux": {
+          "fish": {
+            "path": "/usr/bin/fish"
+          }
+        },
+        "rust-analyzer.checkOnSave": true,
+        "rust-analyzer.server.path": "/home/vscode/.cargo/bin/rust-analyzer"
+      }
+    }
+  },
+  "remoteEnv": {
+    "HTTP_PROXY": "http://127.0.0.1:7890",
+    "HTTPS_PROXY": "http://127.0.0.1:7890",
+    "http_proxy": "http://127.0.0.1:7890",
+    "https_proxy": "http://127.0.0.1:7890",
+    "NO_PROXY": "${localEnv:NO_PROXY}",
+    "no_proxy": "${localEnv:no_proxy}"
+  },
+  "runArgs": [
+    "--network=host"
+  ]
+}
