@@ -1,18 +1,22 @@
 #![no_std]
 #![no_main]
 
-global_asm!(include_str!("entry.S"));
+core::arch::global_asm!(include_str!("entry.S"));
+
+mod power;
+mod debug_console;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main() -> ! {
     clear_bss();
-    loop {}
+    eprintln!("Hello, world!");
+    power::shutdown(false);
 }
 
-use core::{arch::global_asm, panic::PanicInfo};
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    eprintln!("Panic occurred: {}", info);
+    power::shutdown(false);
 }
 
 fn clear_bss() {

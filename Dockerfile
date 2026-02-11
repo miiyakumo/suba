@@ -16,8 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl openssh-client \
     gcc-riscv64-linux-gnu g++-riscv64-linux-gnu \
     libgmp-dev libexpat1-dev fish libmpfr-dev libmpc-dev \
-    lldb \
+    lldb npm device-tree-compiler \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+RUN npm i -g @openai/codex
 
 # 安装 Python tomli（QEMU 编译需求）
 RUN pip3 install tomli --break-system-packages
@@ -35,10 +39,6 @@ ENV CARGO_HOME=/home/vscode/.cargo
 ENV RUSTUP_HOME=/home/vscode/.rustup
 ENV PATH="${CARGO_HOME}/bin:${PATH}"
 
-# 配置 Rust 使用中科大镜像源
-ENV RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
-ENV RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
-
 # 先安装 rustup
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain none
 
@@ -46,22 +46,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain none
 RUN rustup toolchain install nightly-2025-10-28 && \
     rustup default nightly-2025-10-28 && \
     rustup component add rustfmt clippy rust-src rust-analyzer llvm-tools && \
-    rustup target add \
-        riscv64gc-unknown-none-elf \
-        riscv64imac-unknown-none-elf \
-        loongarch64-unknown-linux-gnu \
-        loongarch64-unknown-none \
-        x86_64-unknown-linux-gnu
-
-# 配置 cargo 中科大镜像
-RUN mkdir -p ${CARGO_HOME} && \
-    echo '[source.crates-io]' > ${CARGO_HOME}/config.toml && \
-    echo 'registry = "https://github.com/rust-lang/crates.io-index"' >> ${CARGO_HOME}/config.toml && \
-    echo 'replace-with = "ustc"' >> ${CARGO_HOME}/config.toml && \
-    echo '' >> ${CARGO_HOME}/config.toml && \
-    echo '[source.ustc]' >> ${CARGO_HOME}/config.toml && \
-    echo 'registry = "git://mirrors.ustc.edu.cn/crates.io-index"' >> ${CARGO_HOME}/config.toml
-
+    rustup target add riscv64gc-unknown-none-elf
 
 # 配置 cargo binutils
 RUN cargo install cargo-binutils 
@@ -73,7 +58,7 @@ WORKDIR /root
 # 编译安装 QEMU 9.2.1
 RUN wget https://download.qemu.org/qemu-9.2.1.tar.xz && \
     tar -xf qemu-9.2.1.tar.xz && cd qemu-9.2.1 && \
-    ./configure --target-list=riscv64-softmmu,riscv64-linux-user,loongarch64-softmmu,loongarch64-linux-user \
+    ./configure --target-list=riscv64-softmmu,riscv64-linux-user \
         --enable-sdl --enable-slirp && \
     make -j$(nproc) && make install && \
     cd .. && rm -rf qemu-9.2.1*
@@ -81,11 +66,6 @@ RUN wget https://download.qemu.org/qemu-9.2.1.tar.xz && \
 # 编译安装 GDB 13.1
 RUN wget https://mirrors.tuna.tsinghua.edu.cn/gnu/gdb/gdb-13.1.tar.xz && \
     tar -xf gdb-13.1.tar.xz
-
-WORKDIR /root/gdb-13.1
-RUN mkdir build-loongarch64 && cd build-loongarch64 && \
-    ../configure --prefix=/usr/local --target=loongarch64-unknown-elf --enable-tui=yes && \
-    make -j$(nproc) && make install
 
 WORKDIR /root/gdb-13.1
 RUN mkdir build-riscv64 && cd build-riscv64 && \

@@ -8,31 +8,18 @@ GDB_BIN := riscv64-unknown-elf-gdb
 # ===============================================
 # 核心目标
 # ===============================================
+.PHONY: run test debug gdb dtb
 
 # 目标 1: run (默认启动 QEMU)
 run:
 	@echo "Running $(PROJECT_DIR)..."
-ifeq ($(TEST), 1)
-	@echo "TEST=1 detected. Running tests instead of 'cargo run'."
-	@cargo test
-else
 	@cargo build && $(QEMU_RUNNER) $(PROJECT_DIR) run
-endif
 
 # 目标 2: test (显式运行测试)
 test:
 	@cargo test
 
-.PHONY: run test debug gdb qemu-gdb-target
-
-# 目标 3: qemu-gdb-target (启动 QEMU 等待 GDB)
-# 在后台启动 QEMU 并等待连接，使用 'gdb' 模式
-qemu-gdb-target:
-	@echo "Starting QEMU in GDB mode (port 1234). Use 'make gdb' to connect."
-	@cargo build
-	@$(QEMU_RUNNER) $(PROJECT_DIR) gdb &
-
-# 目标 4: gdb (连接到正在运行的 QEMU)
+# 目标 3: gdb (连接到正在运行的 QEMU)
 gdb:
 	@echo "Starting GDB client and connecting to QEMU on tcp:1234..."
 	$(GDB_BIN) \
@@ -48,4 +35,9 @@ debug:
 	@echo "在新的终端窗口中运行 'make gdb' 来连接到 QEMU。"
 	@echo "QEMU 正在等待 GDB 连接..."
 	@echo "======================================================="
-	@$(QEMU_RUNNER) $(PROJECT_DIR) gdb
+	@$(QEMU_RUNNER) $(PROJECT_DIR) gdb &
+
+# 目标 5: dtb (生成设备树二进制文件) XXX: 没有保证单一数据源
+dtb:
+	@echo "Generating device tree binary (DTB) file..."
+	@qemu-system-riscv64 -machine virt,dumpdtb=virt.dtb && dtc virt.dtb
