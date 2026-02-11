@@ -1,10 +1,12 @@
 {
   "name": "suba-devcontainer",
-  "build": {
-    "dockerfile": "../Dockerfile"
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/nix:1": {
+      "enableFlakes": true
+    }
   },
   "remoteUser": "vscode",
-  "postCreateCommand": "rustup show",
   "updateRemoteUserUID": true,
   "postStartCommand": "git config --global --add safe.directory '*'",
   "customizations": {
@@ -17,14 +19,22 @@
         "Gruntfuggly.todo-tree"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "fish",
+        "terminal.integrated.defaultProfile.linux": "nix-fish",
         "terminal.integrated.profiles.linux": {
+          "nix-fish": {
+            "path": "nix",
+            "args": [
+              "develop",
+              "-c",
+              "fish"
+            ]
+          },
           "fish": {
             "path": "/usr/bin/fish"
           }
         },
         "rust-analyzer.checkOnSave": true,
-        "rust-analyzer.server.path": "/home/vscode/.cargo/bin/rust-analyzer"
+        "rust-analyzer.server.path": "rust-analyzer"
       }
     }
   },
