@@ -36,6 +36,13 @@ impl Default for RoundRobinScheduler {
 }
 
 impl RoundRobinScheduler {
+    // TODO: 实现 RoundRobinScheduler::new 和 enqueue
+    // 参考 .solution/4.4-rr-enqueue.rs
+    //
+    // 提示：
+    // - new() 应创建一个空的 VecDeque 队列
+    // - enqueue() 将任务加入队尾
+
     /// 创建新的调度器
     pub const fn new() -> Self {
         Self {
@@ -47,6 +54,14 @@ impl RoundRobinScheduler {
     pub fn enqueue(&mut self, task: TaskHandle) {
         self.queue.push_back(task);
     }
+
+    // TODO: 实现 RoundRobinScheduler::next
+    // 参考 .solution/4.5-rr-next.rs
+    //
+    // 提示：
+    // - 从队头取出任务，检查状态
+    // - Ready 状态返回，其他状态放回队尾
+    // - 用 try_lock 避免死锁
 
     /// 选择下一个要运行的任务
     ///
@@ -82,6 +97,13 @@ impl RoundRobinScheduler {
         self.queue.is_empty()
     }
 }
+
+// TODO: 编写调度器测试
+// 参考 .solution/4.6-rr-skip-test.rs
+//
+// 测试要点：
+// - 跳过 Exited 状态的任务
+// - Round-Robin 顺序正确性
 
 #[cfg(test)]
 mod tests {

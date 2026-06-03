@@ -691,9 +691,20 @@
       "name": "实现 RoundRobinScheduler::new 和 enqueue",
       "description": "实现 RoundRobinScheduler 的构造函数和入队方法。使用 VecDeque 作为就绪队列，新任务加入队尾。",
       "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_enqueue_len",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零scheduler警告, new()正确创建空队列, enqueue()正确FIFO入队"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "doc注释完整, TODO标记指向solution文件, const fn教学点"
+        }
+      ],
       "solution": ".solution/4.4-rr-enqueue.rs",
       "student_todo": [
         "kernel/src/task/scheduler.rs:RoundRobinScheduler::new, enqueue"
@@ -706,9 +717,20 @@
       "name": "实现 RoundRobinScheduler::next",
       "description": "实现 Round-Robin 调度算法的核心：从队头取出下一个就绪任务，跳过非就绪状态的任务。队列为空时返回 None。",
       "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_next_returns_ready_task",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零scheduler警告, next()正确实现RR算法, try_lock避免死锁, 非Ready任务放回队尾"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "算法步骤在doc注释中清晰描述, SAFETY注释解释try_lock原因, TODO标记合理"
+        }
+      ],
       "solution": ".solution/4.5-rr-next.rs",
       "student_todo": [
         "kernel/src/task/scheduler.rs:RoundRobinScheduler::next"
@@ -721,9 +743,20 @@
       "name": "调度器跳过退出任务测试",
       "description": "编写测试验证调度器正确跳过 Exited 状态的任务，以及 Round-Robin 顺序的正确性。",
       "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_skips_exited_task",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零scheduler警告, 测试覆盖Exited跳过和RR顺序正确性"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "测试用例有doc注释解释测试目的, TODO标记指向solution文件"
+        }
+      ],
       "solution": ".solution/4.6-rr-skip-test.rs",
       "student_todo": [
         "kernel/src/task/scheduler.rs:测试用例"
