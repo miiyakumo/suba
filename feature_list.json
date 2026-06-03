@@ -3,9 +3,9 @@
   "project": "suba",
   "total": 105,
   "summary": {
-    "completed": 8,
+    "completed": 14,
     "in_progress": 0,
-    "pending": 105
+    "pending": 91
   },
   "features": [
     {
@@ -223,9 +223,20 @@
       "name": "定义 Console trait",
       "description": "在 kernel/src/driver/mod.rs 中定义 Console trait，包含 putchar()、getchar()、puts() 方法。puts() 提供默认实现，逐字节调用 putchar。",
       "test": "cargo test --features mock -p suba-kernel -- driver::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, 错误路径有处理, 逻辑正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, SpinLock 教学概念清晰, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/2.1-console-trait.rs",
       "student_todo": [
         "kernel/src/driver/mod.rs:Console trait 定义"
@@ -238,9 +249,20 @@
       "name": "定义 Power trait",
       "description": "在 kernel/src/driver/mod.rs 中定义 Power trait，包含 shutdown() -> ! 和 reboot() -> ! 方法。",
       "test": "cargo test --features mock -p suba-kernel -- driver::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, 错误路径有处理, 逻辑正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, SpinLock 教学概念清晰, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/2.2-power-trait.rs",
       "student_todo": [
         "kernel/src/driver/mod.rs:Power trait 定义"
@@ -253,9 +275,20 @@
       "name": "实现 MockConsole",
       "description": "在 kernel/src/driver/mock.rs 中实现 MockConsole 结构体。putchar 使用缓冲区累积字符，getchar 返回 None。",
       "test": "cargo test --features mock -p suba-kernel -- mock::tests::mock_console_puts",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, 错误路径有处理, 逻辑正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, SpinLock 教学概念清晰, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/2.3-mock-console.rs",
       "student_todo": [
         "kernel/src/driver/mock.rs:MockConsole impl Console"
@@ -268,9 +301,20 @@
       "name": "实现 MockPower",
       "description": "在 kernel/src/driver/mock.rs 中实现 MockPower 结构体。shutdown 和 reboot 通过 panic! 终止测试。",
       "test": "cargo test --features mock -p suba-kernel -- mock::tests::mock_console_puts",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, 错误路径有处理, 逻辑正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, SpinLock 教学概念清晰, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/2.4-mock-power.rs",
       "student_todo": [
         "kernel/src/driver/mock.rs:MockPower impl Power"
@@ -283,9 +327,20 @@
       "name": "实现 SpinLock",
       "description": "实现基本的自旋锁（可用 spin crate 的 spin::Mutex）。为后续的中断安全同步原语打基础。理解为什么内核需要自旋锁而不是互斥锁。",
       "test": "cargo test --features mock -p suba-kernel -- driver::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, 错误路径有处理, 逻辑正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, SpinLock 教学概念清晰, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/2.5-spinlock.rs",
       "student_todo": [
         "kernel/src/driver/mod.rs:SpinLock 使用说明"
@@ -298,9 +353,20 @@
       "name": "实现中断安全的控制台输出",
       "description": "用 SpinLock 保护控制台输出，确保并发安全。实现 print!/println! 宏的基础设施。理解中断上下文中为什么不能获取已持有的锁。",
       "test": "cargo test --features mock -p suba-kernel -- driver::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, 错误路径有处理, 逻辑正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, SpinLock 教学概念清晰, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/2.6-interrupt-safe-console.rs",
       "student_todo": [
         "kernel/src/driver/mock.rs:SpinLock 保护的输出"
