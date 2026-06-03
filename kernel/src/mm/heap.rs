@@ -42,7 +42,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn heap_not_initialized_by_default() {
-        assert!(!is_initialized());
+    fn heap_size_constant() {
+        assert_eq!(HEAP_SIZE, 0x20_0000); // 2MB
+    }
+
+    #[test]
+    fn heap_init_sets_initialized() {
+        // 注意：此测试修改全局状态，需要 --test-threads=1 或接受状态泄漏
+        // SAFETY: 测试环境单线程，且使用 mock 地址
+        unsafe { init_heap(0x1000_0000, HEAP_SIZE) };
+        assert!(is_initialized());
     }
 }

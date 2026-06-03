@@ -109,6 +109,136 @@ pub trait PageTable {
     fn translate(&self, va: usize) -> Option<usize>;
 }
 
+// ---------------------------------------------------------------------------
+// BitmapFrameAllocator — 位图帧分配器
+// ---------------------------------------------------------------------------
+
+/// 位图帧分配器。
+///
+/// 使用位图跟踪物理帧的分配状态。每个 bit 代表一个帧：
+/// - 0 = 空闲
+/// - 1 = 已分配
+///
+/// ## 教学概念
+/// 位图分配器是最简单的物理帧分配器之一。
+/// 优点：实现简单、内存占用可预测。
+/// 缺点：分配时需要扫描位图，O(n) 复杂度。
+pub struct BitmapFrameAllocator {
+    /// 位图，每个 u64 管理 64 个帧
+    bitmap: alloc::vec::Vec<u64>,
+    /// 管理的起始物理页号
+    start_ppn: usize,
+    /// 管理的总帧数
+    total_frames: usize,
+}
+
+impl BitmapFrameAllocator {
+    /// 创建新的位图帧分配器
+    ///
+    /// # 参数
+    /// - `start_ppn`: 起始物理页号
+    /// - `total_frames`: 管理的总帧数
+    pub fn new(start_ppn: usize, total_frames: usize) -> Self {
+        let words = (total_frames + 63) / 64;
+        Self {
+            bitmap: alloc::vec![0u64; words],
+            start_ppn,
+            total_frames,
+        }
+    }
+
+    /// 标记指定帧为已分配
+    fn set_allocated(&mut self, index: usize) {
+        let word = index / 64;
+        let bit = index % 64;
+        self.bitmap[word] |= 1u64 << bit;
+    }
+
+    /// 检查指定帧是否已分配
+    fn is_allocated(&self, index: usize) -> bool {
+        let word = index / 64;
+        let bit = index % 64;
+        (self.bitmap[word] & (1u64 << bit)) != 0
+    }
+}
+
+impl FrameAllocator for BitmapFrameAllocator {
+    fn allocate(&mut self) -> Option<Frame> {
+        for i in 0..self.total_frames {
+            if !self.is_allocated(i) {
+                self.set_allocated(i);
+                return Some(Frame::new(self.start_ppn + i));
+            }
+        }
+        None
+    }
+
+    unsafe fn deallocate(&mut self, frame: Frame) {
+        // SAFETY: 调用者确保 frame 是通过 allocate 分配的
+        let index = frame.ppn - self.start_ppn;
+        if index < self.total_frames {
+            let word = index / 64;
+            let bit = index % 64;
+            self.bitmap[word] &= !(1u64 << bit);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MockPageTable — Mock 页表
+// ---------------------------------------------------------------------------
+
+/// Mock 页表实现。
+///
+/// 使用简单的 Vec 存储映射关系，在测试环境中模拟页表操作。
+pub struct MockPageTable {
+    /// 映射列表：(虚拟地址, 物理地址, 标志)
+    mappings: alloc::vec::Vec<(usize, usize, crate::arch::PteFlags)>,
+}
+
+impl MockPageTable {
+    /// 创建新的 Mock 页表
+    pub fn new() -> Self {
+        Self {
+            mappings: alloc::vec::Vec::new(),
+        }
+    }
+}
+
+impl Default for MockPageTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PageTable for MockPageTable {
+    unsafe fn map(&mut self, va: usize, pa: usize, flags: crate::arch::PteFlags) -> Result<(), ()> {
+        // 检查是否已存在映射
+        if self.mappings.iter().any(|(v, _, _)| *v == va) {
+            return Err(());
+        }
+        self.mappings.push((va, pa, flags));
+        Ok(())
+    }
+
+    fn unmap(&mut self, va: usize) -> Result<(), ()> {
+        let len_before = self.mappings.len();
+        self.mappings.retain(|(v, _, _)| *v != va);
+        if self.mappings.len() < len_before {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn translate(&self, va: usize) -> Option<usize> {
+        self.mappings
+            .iter()
+            .find(|(v, _, _)| *v == va)
+            .map(|(_, pa, _)| *pa)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +255,54 @@ mod tests {
         let f = Frame::from_pa(0x8020_1000);
         assert_eq!(f.ppn, 0x80201);
         assert_eq!(f.start_pa(), 0x8020_1000);
+    }
+
+    #[test]
+    fn bitmap_allocator_basic() {
+        let mut alloc = BitmapFrameAllocator::new(0, 128);
+        let f1 = alloc.allocate().unwrap();
+        assert_eq!(f1.ppn, 0);
+        let f2 = alloc.allocate().unwrap();
+        assert_eq!(f2.ppn, 1);
+        // 释放后可以重新分配
+        unsafe { alloc.deallocate(f1) };
+        let f3 = alloc.allocate().unwrap();
+        assert_eq!(f3.ppn, 0); // 复用释放的帧
+    }
+
+    #[test]
+    fn bitmap_allocator_exhaustion() {
+        let mut alloc = BitmapFrameAllocator::new(100, 2);
+        let f1 = alloc.allocate().unwrap();
+        assert_eq!(f1.ppn, 100);
+        let f2 = alloc.allocate().unwrap();
+        assert_eq!(f2.ppn, 101);
+        assert!(alloc.allocate().is_none()); // 已耗尽
+    }
+
+    #[test]
+    fn mock_page_table_map_translate() {
+        let mut pt = MockPageTable::new();
+        let flags = crate::arch::PteFlags::new(crate::arch::PteFlags::VALID | crate::arch::PteFlags::READ);
+        unsafe { pt.map(0x1000, 0x8000_1000, flags).unwrap() };
+        assert_eq!(pt.translate(0x1000), Some(0x8000_1000));
+        assert_eq!(pt.translate(0x2000), None);
+    }
+
+    #[test]
+    fn mock_page_table_unmap() {
+        let mut pt = MockPageTable::new();
+        let flags = crate::arch::PteFlags::new(crate::arch::PteFlags::VALID);
+        unsafe { pt.map(0x1000, 0x8000_1000, flags).unwrap() };
+        pt.unmap(0x1000).unwrap();
+        assert_eq!(pt.translate(0x1000), None);
+    }
+
+    #[test]
+    fn mock_page_table_duplicate_map_fails() {
+        let mut pt = MockPageTable::new();
+        let flags = crate::arch::PteFlags::new(crate::arch::PteFlags::VALID);
+        unsafe { pt.map(0x1000, 0x8000_1000, flags).unwrap() };
+        assert!(unsafe { pt.map(0x1000, 0x8000_2000, flags) }.is_err());
     }
 }

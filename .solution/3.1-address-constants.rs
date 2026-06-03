@@ -1,0 +1,23 @@
+/// 用户空间上限（SV39: 256 GB）
+pub const USER_TOP: usize = 0x0000_0040_0000_0000;
+
+/// 内核起始虚拟地址（直接映射偏移）
+pub const KERNEL_BASE: usize = 0xFFFF_FC00_0000_0000;
+
+/// MMIO 区域起始地址
+pub const MMIO_BASE: usize = 0xFFFF_FC10_0000_0000;
+
+/// 内核栈大小（16KB，4 个页）
+pub const KERNEL_STACK_SIZE: usize = 4096 * 4;
+
+/// 用户栈大小（默认 8MB）
+pub const USER_STACK_SIZE: usize = 0x80_0000;
+
+/// 内核堆大小（2MB）
+pub const KERNEL_HEAP_SIZE: usize = 0x20_0000;
+
+/// 物理内存起始地址（QEMU virt 机器）
+pub const PHYS_MEMORY_START: usize = 0x8000_0000;
+
+/// 物理内存大小（128MB）
+pub const PHYS_MEMORY_SIZE: usize = 0x0800_0000;
