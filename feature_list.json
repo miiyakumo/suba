@@ -1,0 +1,1675 @@
+{
+  "$schema": "1.0",
+  "project": "suba",
+  "total": 105,
+  "summary": {
+    "completed": 8,
+    "in_progress": 0,
+    "pending": 105
+  },
+  "features": [
+    {
+      "id": "1.1",
+      "phase": 1,
+      "module": "arch",
+      "name": "定义 CpuOps trait",
+      "description": "在 kernel/src/arch.rs 中定义 CpuOps trait，包含 id()、halt()、disable_interrupts()、restore_interrupt_state()、enable_interrupts()、interrupts_enabled() 共 6 个方法。这是 HAL 的最底层抽象。",
+      "test": "cargo test --features mock -p suba-kernel -- arch::tests",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.1-cpuops-trait.rs",
+      "student_todo": [
+        "kernel/src/arch.rs:CpuOps trait 定义"
+      ]
+    },
+    {
+      "id": "1.2",
+      "phase": 1,
+      "module": "arch",
+      "name": "实现 MockCpuOps",
+      "description": "在 kernel/src/arch/mock.rs 中实现 MockCpuOps 结构体，为 CpuOps trait 的每个方法提供 Mock 实现。id() 返回 0，halt() 进入无限循环，中断操作为空操作。",
+      "test": "cargo test --features mock -p suba-kernel -- mock::tests::mock_cpu_ops",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.2-mock-cpuops.rs",
+      "student_todo": [
+        "kernel/src/arch/mock.rs:MockCpuOps impl CpuOps"
+      ]
+    },
+    {
+      "id": "1.3",
+      "phase": 1,
+      "module": "arch",
+      "name": "定义 MmOps trait",
+      "description": "在 kernel/src/arch.rs 中定义 MmOps trait，包含 translate_va()、flush_tlb()、flush_tlb_addr()、current_page_table()、switch_page_table() 方法。提供内存管理的架构抽象。",
+      "test": "cargo test --features mock -p suba-kernel -- arch::tests",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.3-mmops-trait.rs",
+      "student_todo": [
+        "kernel/src/arch.rs:MmOps trait 定义"
+      ]
+    },
+    {
+      "id": "1.4",
+      "phase": 1,
+      "module": "arch",
+      "name": "实现 MockMmOps",
+      "description": "在 kernel/src/arch/mock.rs 中实现 MockMmOps。translate_va 直接返回相同的地址（恒等映射），TLB 操作为空操作。",
+      "test": "cargo test --features mock -p suba-kernel -- mock::tests::mock_cpu_ops",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.4-mock-mmops.rs",
+      "student_todo": [
+        "kernel/src/arch/mock.rs:MockMmOps impl MmOps"
+      ]
+    },
+    {
+      "id": "1.5",
+      "phase": 1,
+      "module": "arch",
+      "name": "定义 Arch trait",
+      "description": "在 kernel/src/arch.rs 中定义 Arch trait，组合 CpuOps + MmOps，添加 TrapFrame 关联类型、context_switch()、copy_from_user()、copy_to_user()、name()、cpu_count() 方法。",
+      "test": "cargo test --features mock -p suba-kernel -- arch::tests",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.5-arch-trait.rs",
+      "student_todo": [
+        "kernel/src/arch.rs:Arch trait 定义"
+      ]
+    },
+    {
+      "id": "1.6",
+      "phase": 1,
+      "module": "arch",
+      "name": "实现 MockArch",
+      "description": "在 kernel/src/arch/mock.rs 中实现 MockArch 结构体，组合 MockCpuOps + MockMmOps，实现 Arch trait。context_switch 为空操作，copy_from_user/to_user 使用 ptr::copy_nonoverlapping。",
+      "test": "cargo test --features mock -p suba-kernel -- mock::tests",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.6-mock-arch.rs",
+      "student_todo": [
+        "kernel/src/arch/mock.rs:MockArch impl Arch"
+      ]
+    },
+    {
+      "id": "1.7",
+      "phase": 1,
+      "module": "arch",
+      "name": "定义 Context 结构体",
+      "description": "在 kernel/src/arch.rs 中定义 Context 结构体（#[repr(C)]），包含 ra、sp、s[0..12] 共 14 个 usize 字段。提供 zero_init() 和 set_init_context() 方法。",
+      "test": "cargo test --features mock -p suba-kernel -- mock::tests::context_init",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.7-context-struct.rs",
+      "student_todo": [
+        "kernel/src/arch.rs:Context 结构体定义"
+      ]
+    },
+    {
+      "id": "1.8",
+      "phase": 1,
+      "module": "arch",
+      "name": "定义 MockTrapFrame + SyscallFrame",
+      "description": "在 kernel/src/arch/mock.rs 中定义 MockTrapFrame（保存 syscall_no、args、ret、pc、sp），实现 HwTrapFrame 和 SyscallFrame trait。",
+      "test": "cargo test --features mock -p suba-kernel -- mock::tests::mock_trap_frame_syscall",
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, unsafe 块有 SAFETY 注释, 错误路径有处理, 边界条件已覆盖"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整, naming 一致"
+        }
+      ],
+      "solution": ".solution/1.8-mock-trapframe.rs",
+      "student_todo": [
+        "kernel/src/arch/mock.rs:MockTrapFrame 结构体和 trait 实现"
+      ]
+    },
+    {
+      "id": "2.1",
+      "phase": 1,
+      "module": "driver",
+      "name": "定义 Console trait",
+      "description": "在 kernel/src/driver/mod.rs 中定义 Console trait，包含 putchar()、getchar()、puts() 方法。puts() 提供默认实现，逐字节调用 putchar。",
+      "test": "cargo test --features mock -p suba-kernel -- driver::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/2.1-console-trait.rs",
+      "student_todo": [
+        "kernel/src/driver/mod.rs:Console trait 定义"
+      ]
+    },
+    {
+      "id": "2.2",
+      "phase": 1,
+      "module": "driver",
+      "name": "定义 Power trait",
+      "description": "在 kernel/src/driver/mod.rs 中定义 Power trait，包含 shutdown() -> ! 和 reboot() -> ! 方法。",
+      "test": "cargo test --features mock -p suba-kernel -- driver::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/2.2-power-trait.rs",
+      "student_todo": [
+        "kernel/src/driver/mod.rs:Power trait 定义"
+      ]
+    },
+    {
+      "id": "2.3",
+      "phase": 1,
+      "module": "driver",
+      "name": "实现 MockConsole",
+      "description": "在 kernel/src/driver/mock.rs 中实现 MockConsole 结构体。putchar 使用缓冲区累积字符，getchar 返回 None。",
+      "test": "cargo test --features mock -p suba-kernel -- mock::tests::mock_console_puts",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/2.3-mock-console.rs",
+      "student_todo": [
+        "kernel/src/driver/mock.rs:MockConsole impl Console"
+      ]
+    },
+    {
+      "id": "2.4",
+      "phase": 1,
+      "module": "driver",
+      "name": "实现 MockPower",
+      "description": "在 kernel/src/driver/mock.rs 中实现 MockPower 结构体。shutdown 和 reboot 通过 panic! 终止测试。",
+      "test": "cargo test --features mock -p suba-kernel -- mock::tests::mock_console_puts",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/2.4-mock-power.rs",
+      "student_todo": [
+        "kernel/src/driver/mock.rs:MockPower impl Power"
+      ]
+    },
+    {
+      "id": "2.5",
+      "phase": 1,
+      "module": "driver",
+      "name": "实现 SpinLock",
+      "description": "实现基本的自旋锁（可用 spin crate 的 spin::Mutex）。为后续的中断安全同步原语打基础。理解为什么内核需要自旋锁而不是互斥锁。",
+      "test": "cargo test --features mock -p suba-kernel -- driver::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/2.5-spinlock.rs",
+      "student_todo": [
+        "kernel/src/driver/mod.rs:SpinLock 使用说明"
+      ]
+    },
+    {
+      "id": "2.6",
+      "phase": 1,
+      "module": "driver",
+      "name": "实现中断安全的控制台输出",
+      "description": "用 SpinLock 保护控制台输出，确保并发安全。实现 print!/println! 宏的基础设施。理解中断上下文中为什么不能获取已持有的锁。",
+      "test": "cargo test --features mock -p suba-kernel -- driver::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/2.6-interrupt-safe-console.rs",
+      "student_todo": [
+        "kernel/src/driver/mock.rs:SpinLock 保护的输出"
+      ]
+    },
+    {
+      "id": "3.1",
+      "phase": 1,
+      "module": "mm",
+      "name": "定义地址空间布局常量",
+      "description": "在 kernel/src/mm/address.rs 中定义 USER_TOP、KERNEL_BASE、MMIO_BASE、KERNEL_STACK_SIZE、USER_STACK_SIZE、KERNEL_HEAP_SIZE、PHYS_MEMORY_START、PHYS_MEMORY_SIZE 常量。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.1-address-constants.rs",
+      "student_todo": [
+        "kernel/src/mm/address.rs:地址空间常量"
+      ]
+    },
+    {
+      "id": "3.2",
+      "phase": 1,
+      "module": "mm",
+      "name": "定义物理帧 Frame 结构体",
+      "description": "在 kernel/src/mm/mod.rs 中定义 Frame 结构体（包含 ppn 字段），提供 new()、from_pa()、start_pa() 方法。理解物理页号与物理地址的关系。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::tests::frame_basic",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.2-frame-struct.rs",
+      "student_todo": [
+        "kernel/src/mm/mod.rs:Frame 结构体"
+      ]
+    },
+    {
+      "id": "3.3",
+      "phase": 1,
+      "module": "mm",
+      "name": "定义 FrameAllocator trait",
+      "description": "在 kernel/src/mm/mod.rs 中定义 FrameAllocator trait，包含 allocate() -> Option<Frame> 和 deallocate(frame) 方法。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.3-frame-allocator-trait.rs",
+      "student_todo": [
+        "kernel/src/mm/mod.rs:FrameAllocator trait"
+      ]
+    },
+    {
+      "id": "3.4",
+      "phase": 1,
+      "module": "mm",
+      "name": "实现位图帧分配器",
+      "description": "实现 BitmapFrameAllocator，使用位图跟踪物理帧的分配状态。allocate() 找到第一个空闲帧并标记为已分配，deallocate() 清除标记。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.4-bitmap-allocator.rs",
+      "student_todo": [
+        "kernel/src/mm/mod.rs:BitmapFrameAllocator 实现"
+      ]
+    },
+    {
+      "id": "3.5",
+      "phase": 1,
+      "module": "mm",
+      "name": "实现 FrameTracker (RAII)",
+      "description": "在 kernel/src/mm/mod.rs 中实现 FrameTracker 结构体，拥有 Frame 的所有权。理解 RAII 模式——Rust 的所有权系统如何防止内存泄漏。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.5-frame-tracker.rs",
+      "student_todo": [
+        "kernel/src/mm/mod.rs:FrameTracker 结构体"
+      ]
+    },
+    {
+      "id": "3.6",
+      "phase": 1,
+      "module": "mm",
+      "name": "定义 PageTable trait",
+      "description": "在 kernel/src/mm/mod.rs 中定义 PageTable trait，包含 map()、unmap()、translate() 方法。理解页表如何将虚拟地址映射到物理地址。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.6-page-table-trait.rs",
+      "student_todo": [
+        "kernel/src/mm/mod.rs:PageTable trait"
+      ]
+    },
+    {
+      "id": "3.7",
+      "phase": 1,
+      "module": "mm",
+      "name": "实现 Mock 页表",
+      "description": "实现 MockPageTable，使用简单的 Vec 存储映射关系。在测试环境中模拟页表操作，验证映射/取消映射/查询逻辑。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.7-mock-page-table.rs",
+      "student_todo": [
+        "kernel/src/mm/mod.rs:MockPageTable 实现"
+      ]
+    },
+    {
+      "id": "3.8",
+      "phase": 1,
+      "module": "mm",
+      "name": "实现内核堆初始化",
+      "description": "在 kernel/src/mm/heap.rs 中实现堆初始化函数。使用 talc 或 linked_list_allocator 提供动态内存分配。理解为什么 no_std 环境需要自建堆。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::heap::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.8-heap-init.rs",
+      "student_todo": [
+        "kernel/src/mm/heap.rs:init_heap 函数"
+      ]
+    },
+    {
+      "id": "3.9",
+      "phase": 1,
+      "module": "mm",
+      "name": "堆分配器测试",
+      "description": "编写堆分配器的单元测试，验证 alloc/dealloc 的正确性，测试碎片化场景。确保 Box、Vec 等 alloc 类型在 Mock 环境下正常工作。",
+      "test": "cargo test --features mock -p suba-kernel -- mm::heap::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/3.9-heap-tests.rs",
+      "student_todo": [
+        "kernel/src/mm/heap.rs:测试用例"
+      ]
+    },
+    {
+      "id": "4.1",
+      "phase": 1,
+      "module": "task",
+      "name": "定义 Task 结构体",
+      "description": "在 kernel/src/task/task.rs 中定义 Task 结构体（TCB），包含 pid、state、context、kstack_top、ustack_top、exit_code 字段。提供 new() 和 context_ptr() 方法。",
+      "test": "cargo test --features mock -p suba-kernel -- task::tests::task_creation",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.1-task-struct.rs",
+      "student_todo": [
+        "kernel/src/task/task.rs:Task 结构体"
+      ]
+    },
+    {
+      "id": "4.2",
+      "phase": 1,
+      "module": "task",
+      "name": "定义 TaskState 状态机",
+      "description": "在 kernel/src/task/task.rs 中定义 TaskState 枚举（Ready、Running、Waiting、Exited）。理解任务在其生命周期中的状态转换。",
+      "test": "cargo test --features mock -p suba-kernel -- task::tests::task_state_transitions",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.2-task-state.rs",
+      "student_todo": [
+        "kernel/src/task/task.rs:TaskState 枚举"
+      ]
+    },
+    {
+      "id": "4.3",
+      "phase": 1,
+      "module": "task",
+      "name": "定义 Scheduler trait",
+      "description": "定义调度器 trait，包含 enqueue()、next()、len()、is_empty() 方法。理解调度器接口的设计——如何抽象不同的调度算法。",
+      "test": "cargo test --features mock -p suba-kernel -- scheduler::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.3-scheduler-trait.rs",
+      "student_todo": [
+        "kernel/src/task/scheduler.rs:Scheduler 接口设计"
+      ]
+    },
+    {
+      "id": "4.4",
+      "phase": 1,
+      "module": "task",
+      "name": "实现 RoundRobinScheduler::new 和 enqueue",
+      "description": "实现 RoundRobinScheduler 的构造函数和入队方法。使用 VecDeque 作为就绪队列，新任务加入队尾。",
+      "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_enqueue_len",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.4-rr-enqueue.rs",
+      "student_todo": [
+        "kernel/src/task/scheduler.rs:RoundRobinScheduler::new, enqueue"
+      ]
+    },
+    {
+      "id": "4.5",
+      "phase": 1,
+      "module": "task",
+      "name": "实现 RoundRobinScheduler::next",
+      "description": "实现 Round-Robin 调度算法的核心：从队头取出下一个就绪任务，跳过非就绪状态的任务。队列为空时返回 None。",
+      "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_next_returns_ready_task",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.5-rr-next.rs",
+      "student_todo": [
+        "kernel/src/task/scheduler.rs:RoundRobinScheduler::next"
+      ]
+    },
+    {
+      "id": "4.6",
+      "phase": 1,
+      "module": "task",
+      "name": "调度器跳过退出任务测试",
+      "description": "编写测试验证调度器正确跳过 Exited 状态的任务，以及 Round-Robin 顺序的正确性。",
+      "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_skips_exited_task",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.6-rr-skip-test.rs",
+      "student_todo": [
+        "kernel/src/task/scheduler.rs:测试用例"
+      ]
+    },
+    {
+      "id": "4.7",
+      "phase": 1,
+      "module": "task",
+      "name": "实现 Mock 上下文切换",
+      "description": "在 Mock 环境下实现上下文切换。虽然 Mock 的 context_switch 是 no-op，但需要设计 switch() 函数的接口和测试框架，为后续 RISC-V 实现做准备。",
+      "test": "cargo test --features mock -p suba-kernel -- scheduler::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.7-mock-context-switch.rs",
+      "student_todo": [
+        "kernel/src/arch/mock.rs:context_switch 接口"
+      ]
+    },
+    {
+      "id": "4.8",
+      "phase": 1,
+      "module": "task",
+      "name": "实现 TaskManager",
+      "description": "实现 TaskManager，管理所有任务的创建、查找和回收。使用 BTreeMap<usize, TaskHandle> 存储任务，提供 create_task()、get_task()、exit_task() 方法。",
+      "test": "cargo test --features mock -p suba-kernel -- task::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.8-task-manager.rs",
+      "student_todo": [
+        "kernel/src/task/mod.rs:TaskManager 实现"
+      ]
+    },
+    {
+      "id": "4.9",
+      "phase": 1,
+      "module": "task",
+      "name": "集成任务创建和调度测试",
+      "description": "编写集成测试：创建多个任务 → 加入调度器 → 依次取出 → 验证顺序和状态。验证整个任务生命周期。",
+      "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_round_robin_order",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/4.9-task-integration-test.rs",
+      "student_todo": [
+        "kernel/src/task/scheduler.rs:集成测试"
+      ]
+    },
+    {
+      "id": "5.1",
+      "phase": 1,
+      "module": "syscall",
+      "name": "定义系统调用号",
+      "description": "在 kernel/src/syscall/mod.rs 的 number 子模块中定义系统调用号常量：SYS_EXIT(93)、SYS_YIELD(124)、SYS_READ(63)、SYS_WRITE(64)、SYS_OPEN(1024)、SYS_CLOSE(57)、SYS_SBRK(214)、SYS_GETPID(172)。参考 Linux RISC-V 系统调用号。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests::syscall_numbers",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.1-syscall-numbers.rs",
+      "student_todo": [
+        "kernel/src/syscall/mod.rs:number 模块"
+      ]
+    },
+    {
+      "id": "5.2",
+      "phase": 1,
+      "module": "syscall",
+      "name": "实现系统调用分发框架",
+      "description": "在 kernel/src/syscall/mod.rs 中实现 dispatch() 函数，根据 SyscallFrame 中的 syscall_id 路由到对应的处理函数。未知系统调用返回 -1。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests::dispatch_unknown_syscall",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.2-syscall-dispatch.rs",
+      "student_todo": [
+        "kernel/src/syscall/mod.rs:dispatch 函数"
+      ]
+    },
+    {
+      "id": "5.3",
+      "phase": 1,
+      "module": "syscall",
+      "name": "实现 sys_write",
+      "description": "在 kernel/src/syscall/impl.rs 中实现 sys_write(fd, buf, len)。验证 fd 是否为 stdout(1)/stderr(2)，从用户空间读取数据并通过控制台输出。返回写入字节数。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.3-sys-write.rs",
+      "student_todo": [
+        "kernel/src/syscall/impl.rs:sys_write"
+      ]
+    },
+    {
+      "id": "5.4",
+      "phase": 1,
+      "module": "syscall",
+      "name": "实现 sys_read",
+      "description": "实现 sys_read(fd, buf, len)。从 stdin(0) 读取字符到用户缓冲区。返回读取的字节数。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.4-sys-read.rs",
+      "student_todo": [
+        "kernel/src/syscall/impl.rs:sys_read"
+      ]
+    },
+    {
+      "id": "5.5",
+      "phase": 1,
+      "module": "syscall",
+      "name": "实现 sys_exit",
+      "description": "实现 sys_exit(exit_code)。将当前任务状态设为 Exited，记录退出码，触发调度让出 CPU。不返回。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.5-sys-exit.rs",
+      "student_todo": [
+        "kernel/src/syscall/impl.rs:sys_exit"
+      ]
+    },
+    {
+      "id": "5.6",
+      "phase": 1,
+      "module": "syscall",
+      "name": "实现 sys_yield",
+      "description": "实现 sys_yield()。将当前任务从 Running 改为 Ready，放回调度队列，触发调度。返回 0。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.6-sys-yield.rs",
+      "student_todo": [
+        "kernel/src/syscall/impl.rs:sys_yield"
+      ]
+    },
+    {
+      "id": "5.7",
+      "phase": 1,
+      "module": "syscall",
+      "name": "实现 sys_sbrk",
+      "description": "实现 sys_sbrk(increment)。扩展或缩小当前任务的堆空间，分配/释放物理帧，返回旧堆顶地址。理解堆增长机制。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.7-sys-sbrk.rs",
+      "student_todo": [
+        "kernel/src/syscall/impl.rs:sys_sbrk"
+      ]
+    },
+    {
+      "id": "5.8",
+      "phase": 1,
+      "module": "syscall",
+      "name": "实现 sys_getpid 和集成测试",
+      "description": "实现 sys_getpid()，从当前任务 TCB 读取 pid。编写系统调用集成测试，验证 dispatch 正确路由到各处理函数。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/5.8-sys-getpid.rs",
+      "student_todo": [
+        "kernel/src/syscall/impl.rs:sys_getpid"
+      ]
+    },
+    {
+      "id": "6.1",
+      "phase": 1,
+      "module": "fs",
+      "name": "定义 VfsFile trait",
+      "description": "在 kernel/src/fs/mod.rs 中定义 VfsFile trait，包含 read()、write()、size() 方法。理解 VFS 抽象如何统一不同的文件系统实现。",
+      "test": "cargo test --features mock -p suba-kernel -- fs::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.1-vfs-trait.rs",
+      "student_todo": [
+        "kernel/src/fs/mod.rs:VfsFile trait"
+      ]
+    },
+    {
+      "id": "6.2",
+      "phase": 1,
+      "module": "fs",
+      "name": "实现文件描述符表 FdTable",
+      "description": "在 kernel/src/fs/mod.rs 中实现 FdTable 结构体，管理文件描述符的打开、关闭和查找。使用 Vec<Option<Box<dyn VfsFile>>> 存储。",
+      "test": "cargo test --features mock -p suba-kernel -- fs::tests::fd_table_open_close",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.2-fd-table.rs",
+      "student_todo": [
+        "kernel/src/fs/mod.rs:FdTable 实现"
+      ]
+    },
+    {
+      "id": "6.3",
+      "phase": 1,
+      "module": "fs",
+      "name": "FdTable 槽位复用",
+      "description": "实现 FdTable 的 close 和槽位复用逻辑。关闭文件描述符后，新 open 应复用空闲槽位。编写测试验证。",
+      "test": "cargo test --features mock -p suba-kernel -- fs::tests::fd_table_reuse_slot",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.3-fd-reuse.rs",
+      "student_todo": [
+        "kernel/src/fs/mod.rs:FdTable::close, open 复用逻辑"
+      ]
+    },
+    {
+      "id": "6.4",
+      "phase": 1,
+      "module": "fs",
+      "name": "定义 RamFs 结构体",
+      "description": "在 kernel/src/fs/ramfs.rs 中定义 RamFs 结构体，使用 Vec<u8> 存储文件内容，支持 seek。提供 new() 和 with_data() 构造函数。",
+      "test": "cargo test --features mock -p suba-kernel -- ramfs::tests::ramfs_creation",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.4-ramfs-struct.rs",
+      "student_todo": [
+        "kernel/src/fs/ramfs.rs:RamFs 结构体"
+      ]
+    },
+    {
+      "id": "6.5",
+      "phase": 1,
+      "module": "fs",
+      "name": "实现 RamFs::read",
+      "description": "实现 RamFs 的 read 方法。从当前 offset 读取数据到缓冲区，更新 offset。处理边界条件（读取超出文件末尾）。",
+      "test": "cargo test --features mock -p suba-kernel -- ramfs::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.5-ramfs-read.rs",
+      "student_todo": [
+        "kernel/src/fs/ramfs.rs:RamFs::read"
+      ]
+    },
+    {
+      "id": "6.6",
+      "phase": 1,
+      "module": "fs",
+      "name": "实现 RamFs::write",
+      "description": "实现 RamFs 的 write 方法。将数据写入当前 offset 位置，必要时扩展 Vec。更新 offset。处理写入位置超出当前长度的情况。",
+      "test": "cargo test --features mock -p suba-kernel -- ramfs::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.6-ramfs-write.rs",
+      "student_todo": [
+        "kernel/src/fs/ramfs.rs:RamFs::write"
+      ]
+    },
+    {
+      "id": "6.7",
+      "phase": 1,
+      "module": "fs",
+      "name": "集成 VFS + RamFs + FdTable 测试",
+      "description": "编写集成测试：创建 RamFs → 打开到 FdTable → write 数据 → seek 回开头 → read 验证。验证完整的文件操作流程。",
+      "test": "cargo test --features mock -p suba-kernel -- fs::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.7-vfs-integration-test.rs",
+      "student_todo": [
+        "kernel/src/fs/mod.rs:集成测试"
+      ]
+    },
+    {
+      "id": "6.8",
+      "phase": 1,
+      "module": "fs",
+      "name": "连接 sys_write/sys_read 到 VFS",
+      "description": "修改 sys_write 和 sys_read，通过 FdTable 查找文件描述符，调用 VfsFile 的 read/write 方法。实现完整的 用户syscall → 内核 → VFS 路径。",
+      "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.8-syscall-to-vfs.rs",
+      "student_todo": [
+        "kernel/src/syscall/impl.rs:通过 FdTable 访问 VFS"
+      ]
+    },
+    {
+      "id": "6.9",
+      "phase": 1,
+      "module": "fs",
+      "name": "标准文件描述符初始化",
+      "description": "在任务创建时预分配标准文件描述符：fd 0 = stdin, fd 1 = stdout, fd 2 = stderr。理解 Unix 的'一切皆文件'理念——标准输入输出也是文件描述符。",
+      "test": "cargo test --features mock -p suba-kernel -- fs::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.9-std-fds.rs",
+      "student_todo": [
+        "kernel/src/task/task.rs:标准 FD 初始化"
+      ]
+    },
+    {
+      "id": "6.10",
+      "phase": 1,
+      "module": "fs",
+      "name": "Phase 1 Mock 完整集成测试",
+      "description": "编写 Phase 1 的完整集成测试：Mock 环境下 boot → 创建任务 → 系统调用 write → 读取文件 → 退出。验证 Mock 后端的完整教学闭环。",
+      "test": "cargo test --features mock -p suba-kernel",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/6.10-phase1-integration.rs",
+      "student_todo": [
+        "tests/phase1_integration.rs:完整 Mock 集成测试"
+      ]
+    },
+    {
+      "id": "7.1",
+      "phase": 2,
+      "module": "arch",
+      "name": "RISC-V 内核入口 entry.S",
+      "description": "在 os/src/entry.S 中实现内核入口点：设置栈指针（la sp, boot_stack_top）、清零 BSS 段、跳转到 rust_main。理解 CPU 从复位到第一条 Rust 指令的过程。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.1-entry.S",
+      "student_todo": [
+        "os/src/entry.S:栈设置和 BSS 清零"
+      ]
+    },
+    {
+      "id": "7.2",
+      "phase": 2,
+      "module": "arch",
+      "name": "链接脚本 link.ld",
+      "description": "在 os/src/linker.ld 中定义内存布局：BASE_ADDRESS(0x80200000)、text/rodata/data/bss 段、栈空间。理解链接脚本如何控制内存布局。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.2-linker.ld",
+      "student_todo": [
+        "os/src/linker.ld:内存布局定义"
+      ]
+    },
+    {
+      "id": "7.3",
+      "phase": 2,
+      "module": "arch",
+      "name": "rust_main 启动流程",
+      "description": "在 os/src/main.rs 中实现 rust_main() -> ! 函数：清零 BSS → 初始化控制台 → 打印启动信息 → 初始化堆 → 初始化任务系统 → 创建第一个任务 → 启动调度。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.3-rust-main.rs",
+      "student_todo": [
+        "os/src/main.rs:rust_main 启动流程"
+      ]
+    },
+    {
+      "id": "7.4",
+      "phase": 2,
+      "module": "arch",
+      "name": "实现 RISC-V Context 结构体",
+      "description": "在 os/src/arch/riscv64/ 中定义 RISC-V 的 Context 结构体（ra, sp, s0-s11），与 kernel 的 Context 布局一致。#[repr(C)] 确保内存布局。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.4-riscv-context.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:Context 结构体"
+      ]
+    },
+    {
+      "id": "7.5",
+      "phase": 2,
+      "module": "arch",
+      "name": "实现 switch.S 上下文切换",
+      "description": "在 os/src/arch/riscv64/switch.S 中实现上下文切换汇编：保存 ra/sp/s0-s11 到 old，从 new 恢复 ra/sp/s0-s11，ret。共 28 条指令。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.5-switch.S",
+      "student_todo": [
+        "os/src/arch/riscv64/switch.S:switch 函数"
+      ]
+    },
+    {
+      "id": "7.6",
+      "phase": 2,
+      "module": "arch",
+      "name": "实现 RISC-V CpuOps",
+      "description": "在 os/src/arch/riscv64/mod.rs 中实现 Riscv64CpuOps，通过 CSR 指令操作 sstatus/sie/sip 寄存器。id() 读 mhartid，halt() 使用 wfi。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.6-riscv-cpuops.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:Riscv64CpuOps"
+      ]
+    },
+    {
+      "id": "7.7",
+      "phase": 2,
+      "module": "arch",
+      "name": "定义 RISC-V TrapFrame",
+      "description": "在 os/src/arch/riscv64/ 中定义 TrapFrame 结构体（#[repr(C)]），包含 sepc、x1-x31、sstatus、kernel_sp 共 34 个 usize 字段。实现 HwTrapFrame 和 SyscallFrame trait。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.7-riscv-trapframe.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:TrapFrame 结构体"
+      ]
+    },
+    {
+      "id": "7.8",
+      "phase": 2,
+      "module": "arch",
+      "name": "实现 trap.S trap 入口",
+      "description": "在 os/src/arch/riscv64/trap.S 中实现 trap 入口汇编：保存所有寄存器到 TrapFrame、设置内核栈、调用 trap_handler、恢复寄存器、sret 返回。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.8-trap-entry.S",
+      "student_todo": [
+        "os/src/arch/riscv64/trap.S:trap_entry, trap_return"
+      ]
+    },
+    {
+      "id": "7.9",
+      "phase": 2,
+      "module": "arch",
+      "name": "实现 trap_handler 中断分发",
+      "description": "在 os/src/arch/riscv64/mod.rs 中实现 trap_handler() 函数：读取 scause 寄存器，根据异常类型分发——ecall 走系统调用路径，timer 走时钟中断路径，外部中断走 PLIC 路径。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.9-trap-handler.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:trap_handler"
+      ]
+    },
+    {
+      "id": "7.10",
+      "phase": 2,
+      "module": "arch",
+      "name": "设置 stvec 陷阱向量",
+      "description": "在 rust_main 中将 stvec CSR 设置为 trap_entry 的地址。理解 RISC-V 的陷阱向量机制——发生异常/中断时 CPU 跳转到 stvec 指向的地址。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.10-stvec-setup.rs",
+      "student_todo": [
+        "os/src/main.rs:stvec 设置"
+      ]
+    },
+    {
+      "id": "7.11",
+      "phase": 2,
+      "module": "arch",
+      "name": "实现 S/U Mode 切换",
+      "description": "实现从 S Mode 切换到 U Mode 的逻辑：设置 sstatus.SPP = User，设置 sepc 为用户入口，执行 sret。理解特权级切换机制。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.11-mode-switch.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:特权级切换"
+      ]
+    },
+    {
+      "id": "7.12",
+      "phase": 2,
+      "module": "arch",
+      "name": "trap 汇编测试",
+      "description": "编写 trap 入口/返回的汇编正确性验证：检查寄存器保存/恢复的偏移量是否正确，确保 sret 正确返回到用户态。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/7.12-trap-test.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/trap.S:偏移量验证"
+      ]
+    },
+    {
+      "id": "8.1",
+      "phase": 2,
+      "module": "arch",
+      "name": "定义 SV39 页表结构",
+      "description": "在 os/src/arch/riscv64/page.rs 中定义 SV39 页表项结构（PTE，64位），包含 PPN（44位）和标志位（V/R/W/X/U/G/A/D）。理解 SV39 三级页表的层次结构。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.1-sv39-pte.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/page.rs:PTE 结构"
+      ]
+    },
+    {
+      "id": "8.2",
+      "phase": 2,
+      "module": "arch",
+      "name": "实现 SV39 地址翻译",
+      "description": "实现 SV39 的虚拟地址翻译：VPN[2:0]（各9位）→ 三级页表查找 → 物理页号 + 页内偏移。理解多级页表如何节省内存。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.2-sv39-translate.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/page.rs:地址翻译"
+      ]
+    },
+    {
+      "id": "8.3",
+      "phase": 2,
+      "module": "mm",
+      "name": "实现 SV39 页表映射",
+      "description": "实现 SV39 页表的 map_page()：分配页表页 → 逐级创建页表项 → 设置最终 PTE 的 PPN 和权限标志。处理大页（2MB/1GB）的情况。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.3-sv39-map.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/page.rs:map_page"
+      ]
+    },
+    {
+      "id": "8.4",
+      "phase": 2,
+      "module": "mm",
+      "name": "实现页表 unmap 和 translate",
+      "description": "实现页表的 unmap（清除 PTE 有效位）和 translate（查询虚拟地址对应的物理地址）。处理中间页表页的回收。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.4-sv39-unmap-translate.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/page.rs:unmap, translate"
+      ]
+    },
+    {
+      "id": "8.5",
+      "phase": 2,
+      "module": "mm",
+      "name": "内核页表初始化",
+      "description": "在启动时创建内核页表：映射内核代码/数据段（直接映射）、映射 MMIO 区域。设置 satp 寄存器激活页表。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.5-kernel-page-table.rs",
+      "student_todo": [
+        "os/src/main.rs:内核页表初始化"
+      ]
+    },
+    {
+      "id": "8.6",
+      "phase": 2,
+      "module": "mm",
+      "name": "实现 satp 切换和 sfence.vma",
+      "description": "实现 switch_page_table：写入 satp 寄存器（MODE=Sv39, PPN），执行 sfence.vma 刷新 TLB。理解页表切换和 TLB 的关系。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.6-satp-switch.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:switch_page_table"
+      ]
+    },
+    {
+      "id": "8.7",
+      "phase": 2,
+      "module": "mm",
+      "name": "实现用户地址空间创建",
+      "description": "为用户程序创建独立的地址空间：分配根页表页 → 映射用户代码/数据段（U 标志）→ 映射用户栈 → 映射 trampoline 页。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.7-user-addr-space.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/page.rs:用户地址空间"
+      ]
+    },
+    {
+      "id": "8.8",
+      "phase": 2,
+      "module": "mm",
+      "name": "实现 RISC-V MmOps",
+      "description": "为 Riscv64 实现 MmOps trait：translate_va 使用页表翻译、flush_tlb 使用 sfence.vma、current_page_table 读 satp。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.8-riscv-mmops.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:impl MmOps"
+      ]
+    },
+    {
+      "id": "8.9",
+      "phase": 2,
+      "module": "mm",
+      "name": "页表测试",
+      "description": "编写 SV39 页表的测试：映射一个虚拟页 → 翻译验证 → 取消映射 → 翻译返回 None。验证页表操作的正确性。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.9-page-table-test.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/page.rs:测试用例"
+      ]
+    },
+    {
+      "id": "8.10",
+      "phase": 2,
+      "module": "mm",
+      "name": "地址类型安全",
+      "description": "使用 PA/VA 类型包装器确保地址不会被误用。在页表操作中强制使用类型安全的地址，防止内核/用户地址混淆。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/8.10-type-safe-addr.rs",
+      "student_todo": [
+        "kernel/src/arch.rs:PA/VA 类型使用"
+      ]
+    },
+    {
+      "id": "9.1",
+      "phase": 2,
+      "module": "driver",
+      "name": "UART MMIO 寄存器定义",
+      "description": "在 os/src/driver/uart.rs 中定义 NS16550A UART 的 MMIO 寄存器结构。QEMU virt 机器的 UART 基地址为 0x10000000。理解 MMIO——通过读写内存地址来控制硬件。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.1-uart-registers.rs",
+      "student_todo": [
+        "os/src/driver/uart.rs:UART 寄存器定义"
+      ]
+    },
+    {
+      "id": "9.2",
+      "phase": 2,
+      "module": "driver",
+      "name": "实现 UART 发送（轮询模式）",
+      "description": "实现 UART 的 putchar：读取 LSR（Line Status Register）检查 THR（Transmit Holding Register）是否为空，然后写入 THR。轮询模式是最简单的 I/O 方式。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.2-uart-putchar.rs",
+      "student_todo": [
+        "os/src/driver/uart.rs:putchar 实现"
+      ]
+    },
+    {
+      "id": "9.3",
+      "phase": 2,
+      "module": "driver",
+      "name": "实现 UART 接收（中断模式）",
+      "description": "实现 UART 的 getchar（中断驱动）：配置 IER（Interrupt Enable Register），在中断处理函数中从 RBR（Receive Buffer Register）读取数据。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.3-uart-getchar.rs",
+      "student_todo": [
+        "os/src/driver/uart.rs:getchar 和中断处理"
+      ]
+    },
+    {
+      "id": "9.4",
+      "phase": 2,
+      "module": "driver",
+      "name": "实现 UART Console trait",
+      "description": "为 UART 驱动实现 kernel 的 Console trait，将 putchar/getchar 映射到 UART MMIO 操作。替换 os 中现有的 SBI 调用。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.4-uart-console.rs",
+      "student_todo": [
+        "os/src/driver/uart.rs:impl Console"
+      ]
+    },
+    {
+      "id": "9.5",
+      "phase": 2,
+      "module": "driver",
+      "name": "CLINT 时钟初始化",
+      "description": "在 os/src/driver/clint.rs 中实现 CLINT（Core Local Interrupter）驱动。配置 mtimecmp 寄存器设置时钟中断间隔。QEMU virt 的 CLINT 基地址为 0x02000000。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.5-clint-init.rs",
+      "student_todo": [
+        "os/src/driver/clint.rs:CLINT 初始化"
+      ]
+    },
+    {
+      "id": "9.6",
+      "phase": 2,
+      "module": "driver",
+      "name": "CLINT 时钟中断处理",
+      "description": "实现时钟中断处理：更新 mtimecmp 设置下一次中断、更新系统 tick 计数、触发任务调度。理解时间片轮转的硬件基础。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.6-clint-handler.rs",
+      "student_todo": [
+        "os/src/driver/clint.rs:时钟中断处理"
+      ]
+    },
+    {
+      "id": "9.7",
+      "phase": 2,
+      "module": "driver",
+      "name": "PLIC 初始化和中断路由",
+      "description": "在 os/src/driver/plic.rs 中实现 PLIC（Platform-Level Interrupt Controller）驱动。配置中断优先级和阈值，启用 UART 中断。QEMU virt 的 PLIC 基地址为 0x0c000000。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.7-plic-init.rs",
+      "student_todo": [
+        "os/src/driver/plic.rs:PLIC 初始化"
+      ]
+    },
+    {
+      "id": "9.8",
+      "phase": 2,
+      "module": "driver",
+      "name": "PLIC 外部中断处理",
+      "description": "实现外部中断处理：读取 claim 寄存器获取中断号，根据中断号分发到对应设备驱动（如 UART），完成后写入 claim 寄存器通知 PLIC。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.8-plic-handler.rs",
+      "student_todo": [
+        "os/src/driver/plic.rs:中断分发"
+      ]
+    },
+    {
+      "id": "9.9",
+      "phase": 2,
+      "module": "driver",
+      "name": "启用中断和优先级控制",
+      "description": "配置 sstatus.SIE 全局中断使能，sie 寄存器启用外部中断和时钟中断。实现中断优先级控制——时钟中断抢占外部中断。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.9-enable-interrupts.rs",
+      "student_todo": [
+        "os/src/main.rs:中断配置"
+      ]
+    },
+    {
+      "id": "9.10",
+      "phase": 2,
+      "module": "driver",
+      "name": "MMIO 读写辅助工具",
+      "description": "在 os/src/util/mod.rs 中实现 MMIO 读写辅助函数：read_volatile 和 write_volatile 的安全封装。理解 volatile 读写的意义——防止编译器优化掉硬件访问。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/9.10-mmio-util.rs",
+      "student_todo": [
+        "os/src/util/mod.rs:MMIO 辅助函数"
+      ]
+    },
+    {
+      "id": "10.1",
+      "phase": 2,
+      "module": "loader",
+      "name": "实现 ELF 头解析",
+      "description": "实现 ELF 头的解析：验证魔数（0x7f 'E' 'L' 'F'）→ 检查是否为 ELF64 RISC-V 可执行文件 → 提取入口点地址和程序头表位置。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.1-elf-header.rs",
+      "student_todo": [
+        "kernel/src/loader/mod.rs:check_elf_magic, ELF 解析"
+      ]
+    },
+    {
+      "id": "10.2",
+      "phase": 2,
+      "module": "loader",
+      "name": "实现程序头解析",
+      "description": "遍历 ELF 程序头表，找到所有 PT_LOAD 类型的段。提取每个段的文件偏移、虚拟地址、文件大小、内存大小和权限标志。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.2-program-headers.rs",
+      "student_todo": [
+        "kernel/src/loader/mod.rs:程序头遍历"
+      ]
+    },
+    {
+      "id": "10.3",
+      "phase": 2,
+      "module": "loader",
+      "name": "实现段加载到内存",
+      "description": "将 ELF 的 PT_LOAD 段复制到用户地址空间：分配物理帧 → 页表映射 → 从 ELF 数据复制内容。处理 p_memsz > p_filesz 的情况（BSS 段清零）。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.3-load-segments.rs",
+      "student_todo": [
+        "kernel/src/loader/mod.rs:段加载"
+      ]
+    },
+    {
+      "id": "10.4",
+      "phase": 2,
+      "module": "loader",
+      "name": "实现完整的 ElfLoader",
+      "description": "整合 ELF 解析和段加载，实现 ElfLoader trait。load_elf() 接受 ELF 数据，返回 (entry_point, user_stack_top)。包含完整的错误处理。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.4-elf-loader.rs",
+      "student_todo": [
+        "kernel/src/loader/mod.rs:ElfLoader 实现"
+      ]
+    },
+    {
+      "id": "10.5",
+      "phase": 2,
+      "module": "loader",
+      "name": "ELF 加载器测试",
+      "description": "编写 ELF 加载器的单元测试：构造最小 ELF 数据 → 验证解析正确性 → 验证段加载逻辑。测试各种边界条件。",
+      "test": "cargo test --features mock -p suba-kernel -- loader::tests",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.5-elf-loader-test.rs",
+      "student_todo": [
+        "kernel/src/loader/mod.rs:测试用例"
+      ]
+    },
+    {
+      "id": "10.6",
+      "phase": 2,
+      "module": "loader",
+      "name": "创建用户栈",
+      "description": "为用户程序创建栈空间：分配物理帧 → 映射到用户地址空间的栈区域 → 设置栈顶指针。栈从高地址向低地址增长。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.6-user-stack.rs",
+      "student_todo": [
+        "os/src/main.rs:用户栈创建"
+      ]
+    },
+    {
+      "id": "10.7",
+      "phase": 2,
+      "module": "loader",
+      "name": "初始化用户态 TrapFrame",
+      "description": "设置用户态的初始 TrapFrame：sepc = 用户入口、sstatus.SPP = User、sp = 用户栈顶、a0 = argc。为 sret 到用户态做准备。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.7-user-trapframe.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:用户 TrapFrame 初始化"
+      ]
+    },
+    {
+      "id": "10.8",
+      "phase": 2,
+      "module": "loader",
+      "name": "实现 RISC-V Arch trait 完整实现",
+      "description": "为 Riscv64 完整实现 Arch trait：context_switch 调用 switch.S、copy_from_user/to_user 使用页表翻译后复制。整合所有 RISC-V 后端组件。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.8-riscv-arch-impl.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:impl Arch"
+      ]
+    },
+    {
+      "id": "10.9",
+      "phase": 2,
+      "module": "loader",
+      "name": "实现 RISC-V Power trait",
+      "description": "为 RISC-V 实现 Power trait：shutdown 通过 SBI 调用或写入 test device MMIO 地址实现。替换 os 中现有的 SBI 直接调用。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.9-riscv-power.rs",
+      "student_todo": [
+        "os/src/power.rs:通过 kernel trait 实现"
+      ]
+    },
+    {
+      "id": "10.10",
+      "phase": 2,
+      "module": "loader",
+      "name": "内核启动完整流程",
+      "description": "将 rust_main 改造为完整的内核启动流程：BSS 清零 → 控制台初始化 → 堆初始化 → 帧分配器初始化 → 内核页表创建 → 中断配置 → 任务系统初始化 → 加载 init 程序 → 启动调度。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.10-boot-flow.rs",
+      "student_todo": [
+        "os/src/main.rs:完整启动流程"
+      ]
+    },
+    {
+      "id": "10.11",
+      "phase": 2,
+      "module": "loader",
+      "name": "实现 RISC-V 中断分发完善",
+      "description": "完善 trap_handler 中的中断分发：ecall → syscall dispatch、timer → CLINT 处理 + 调度、external → PLIC 处理。确保所有中断路径正确覆盖。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/10.11-trap-dispatch.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:完整中断分发"
+      ]
+    },
+    {
+      "id": "11.1",
+      "phase": 2,
+      "module": "integration",
+      "name": "内核启动并打印信息",
+      "description": "验证内核在 QEMU 上启动成功：entry.S → rust_main → 打印 'suba: boot complete' → 关机。端到端的最小验证。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.1-boot-test.rs",
+      "student_todo": [
+        "os/src/main.rs:启动验证"
+      ]
+    },
+    {
+      "id": "11.2",
+      "phase": 2,
+      "module": "integration",
+      "name": "创建第一个任务并调度",
+      "description": "在内核中创建第一个用户任务（init 进程），加入调度器，通过上下文切换开始执行。验证任务创建 → 调度 → 执行的完整路径。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.2-first-task.rs",
+      "student_todo": [
+        "os/src/main.rs:第一个任务创建"
+      ]
+    },
+    {
+      "id": "11.3",
+      "phase": 2,
+      "module": "integration",
+      "name": "加载用户 ELF 程序",
+      "description": "将用户程序的 ELF 数据嵌入内核，通过 ElfLoader 加载到用户地址空间。验证 ELF 解析、段加载、地址映射的正确性。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.3-load-user-program.rs",
+      "student_todo": [
+        "os/src/main.rs:ELF 加载集成"
+      ]
+    },
+    {
+      "id": "11.4",
+      "phase": 2,
+      "module": "integration",
+      "name": "sret 切换到用户态",
+      "description": "通过 sret 指令从 S Mode 切换到 U Mode，开始执行用户程序。验证 sstatus.SPP、sepc、用户栈指针的正确设置。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.4-sret-to-user.rs",
+      "student_todo": [
+        "os/src/arch/riscv64/mod.rs:sret 切换"
+      ]
+    },
+    {
+      "id": "11.5",
+      "phase": 2,
+      "module": "integration",
+      "name": "用户态 syscall write 路径",
+      "description": "验证完整的 syscall 路径：用户 ecall → trap_entry → trap_handler → syscall dispatch → sys_write → UART 输出 → trap_return → 用户继续执行。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.5-syscall-write-path.rs",
+      "student_todo": [
+        "完整 syscall 路径验证"
+      ]
+    },
+    {
+      "id": "11.6",
+      "phase": 2,
+      "module": "integration",
+      "name": "用户态 syscall exit 路径",
+      "description": "验证 syscall exit 路径：用户 ecall(sys_exit) → trap → sys_exit → 任务状态设为 Exited → 调度器选择下一个任务 → 上下文切换。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.6-syscall-exit-path.rs",
+      "student_todo": [
+        "sys_exit 路径验证"
+      ]
+    },
+    {
+      "id": "11.7",
+      "phase": 2,
+      "module": "integration",
+      "name": "多任务调度验证",
+      "description": "创建多个用户任务，验证 Round-Robin 调度：任务 A 执行 → 时间片用完 → 时钟中断 → 上下文切换到任务 B → 循环。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.7-multi-task.rs",
+      "student_todo": [
+        "多任务调度端到端验证"
+      ]
+    },
+    {
+      "id": "11.8",
+      "phase": 2,
+      "module": "integration",
+      "name": "时钟中断驱动调度",
+      "description": "验证时钟中断驱动的任务调度：CLINT 产生中断 → trap_handler → 更新 tick → 触发 schedule() → context_switch → 任务切换。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.8-timer-scheduling.rs",
+      "student_todo": [
+        "CLINT 时钟中断 → 调度验证"
+      ]
+    },
+    {
+      "id": "11.9",
+      "phase": 2,
+      "module": "integration",
+      "name": "UART 中断驱动输入",
+      "description": "验证 UART 中断驱动的输入：用户 sys_read → 等待输入 → 用户按键 → UART 中断 → PLIC → trap_handler → 唤醒任务 → 返回字符。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.9-uart-interrupt-input.rs",
+      "student_todo": [
+        "UART 中断输入路径验证"
+      ]
+    },
+    {
+      "id": "11.10",
+      "phase": 2,
+      "module": "integration",
+      "name": "系统调用全路径验证",
+      "description": "编写端到端测试，覆盖所有系统调用路径：write → 控制台输出、read → 控制台输入、exit → 任务退出、yield → 主动让出、getpid → 获取 PID。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.10-all-syscalls.rs",
+      "student_todo": [
+        "全部系统调用端到端验证"
+      ]
+    },
+    {
+      "id": "11.11",
+      "phase": 2,
+      "module": "integration",
+      "name": "内核关机和清理",
+      "description": "验证内核正常关机流程：所有任务退出 → 资源回收 → 通过 SBI 或 test device 关闭 QEMU。确保没有资源泄漏。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.11-shutdown.rs",
+      "student_todo": [
+        "os/src/power.rs:关机流程"
+      ]
+    },
+    {
+      "id": "11.12",
+      "phase": 2,
+      "module": "integration",
+      "name": "Clippy 和质量检查",
+      "description": "运行 cargo clippy 确保零警告，检查所有 unsafe 块有 SAFETY 注释，文档注释覆盖所有公开 API。最终质量验收。",
+      "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
+      "passes": false,
+      "review_status": null,
+      "review_log": [],
+      "solution": ".solution/11.12-clippy.rs",
+      "student_todo": [
+        "全项目 clippy 检查和文档完善"
+      ]
+    }
+  ]
+}

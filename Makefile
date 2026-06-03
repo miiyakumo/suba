@@ -1,11 +1,5 @@
 DOCKER_TAG ?= suba:latest
-.PHONY: docker build_docker fmt run build clean clean-all
-
-docker:
-	docker run --rm -it -v ${PWD}:/mnt -w /mnt --name comix ${DOCKER_TAG} bash
-
-build_docker:
-	docker build -t ${DOCKER_TAG} --target build .
+.PHONY: fmt run build clean clean-all
 
 fmt:
 	cd os && cargo fmt

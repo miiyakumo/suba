@@ -1,0 +1,12 @@
+[package]
+name = "suba-kernel"
+version = "0.1.0"
+edition = "2024"
+description = "suba 教学内核 — 平台无关的核心逻辑"
+
+[features]
+default = []
+mock = []
+
+[dependencies]
+spin = "0.9"
