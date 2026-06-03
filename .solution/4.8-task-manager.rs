@@ -1,35 +1,18 @@
-//! # 任务管理 (task)
+//! # TaskManager — 任务管理器
 //!
-//! 本模块实现了多任务调度的核心逻辑。
+//! 参考实现：管理所有任务的创建、查找和回收。
 //!
 //! ## 教学概念
-//! - **Task Control Block (TCB)**：每个任务的所有信息集中在一个结构体中
-//! - **TaskState**：任务状态机（Ready → Running → Waiting → Exited）
-//! - **上下文切换**：保存/恢复 callee-saved 寄存器，实现任务切换
-//! - **Round-Robin 调度**：最简单的调度算法——轮流执行
-//!
-//! ## 教学故事
-//! "有了多个任务之后，如何在它们之间切换？"
-//! 答案：保存当前任务的寄存器，恢复下一个任务的寄存器——就这么简单。
-
-pub mod task;
-pub mod scheduler;
-
-pub use task::{Task, TaskState};
-pub use scheduler::{RoundRobinScheduler, TaskHandle};
+//! - **任务管理器**：内核中负责管理所有任务生命周期的组件
+//! - **PID 分配**：自动递增分配唯一标识符
+//! - **任务查找**：通过 PID 快速定位任务
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use spin::Mutex;
 
-// TODO: 实现 TaskManager
-// 参考 .solution/4.8-task-manager.rs
-//
-// 提示：
-// - 使用 BTreeMap<usize, TaskHandle> 存储任务
-// - create_task() 自动分配 PID
-// - get_task() 按 PID 查找
-// - exit_task() 设置任务状态为 Exited
+use super::task::{Task, TaskState};
+use super::scheduler::TaskHandle;
 
 /// 任务管理器。
 ///
@@ -69,7 +52,7 @@ impl TaskManager {
 
     /// 标记任务退出
     ///
-    /// 将任务状态设为 Exited，但不立即移除（由回收机制处理）。
+    /// 将任务状态设为 Exited，但不立即移除。
     pub fn exit_task(&mut self, pid: usize, exit_code: i32) -> bool {
         if let Some(task) = self.tasks.get(&pid) {
             let mut t = task.lock();
@@ -100,7 +83,6 @@ mod tests {
     fn task_manager_create() {
         let mut tm = TaskManager::new();
         assert!(tm.is_empty());
-
         let task = tm.create_task(0x8020_0000, 0x8040_0000, 0);
         assert_eq!(task.lock().pid, 1);
         assert_eq!(tm.len(), 1);
@@ -111,11 +93,9 @@ mod tests {
         let mut tm = TaskManager::new();
         let task = tm.create_task(0x8020_0000, 0x8040_0000, 0);
         let pid = task.lock().pid;
-
         let found = tm.get_task(pid);
         assert!(found.is_some());
         assert_eq!(found.unwrap().lock().pid, pid);
-
         assert!(tm.get_task(999).is_none());
     }
 
@@ -124,12 +104,9 @@ mod tests {
         let mut tm = TaskManager::new();
         let task = tm.create_task(0x8020_0000, 0x8040_0000, 0);
         let pid = task.lock().pid;
-
         assert!(tm.exit_task(pid, 0));
         assert_eq!(task.lock().state, TaskState::Exited);
         assert_eq!(task.lock().exit_code, 0);
-
-        // 不存在的 PID
         assert!(!tm.exit_task(999, 1));
     }
 
@@ -139,7 +116,6 @@ mod tests {
         let t1 = tm.create_task(0x8020_0000, 0x8040_0000, 0);
         let t2 = tm.create_task(0x8020_0000, 0x8050_0000, 0);
         let t3 = tm.create_task(0x8020_0000, 0x8060_0000, 0);
-
         assert_eq!(tm.len(), 3);
         assert_eq!(t1.lock().pid, 1);
         assert_eq!(t2.lock().pid, 2);

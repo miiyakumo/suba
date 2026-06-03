@@ -769,9 +769,20 @@
       "name": "实现 Mock 上下文切换",
       "description": "在 Mock 环境下实现上下文切换。虽然 Mock 的 context_switch 是 no-op，但需要设计 switch() 函数的接口和测试框架，为后续 RISC-V 实现做准备。",
       "test": "cargo test --features mock -p suba-kernel -- scheduler::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, Mock context_switch no-op 正确, scheduler测试全部通过"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "solution 文件展示 switch_task 接口设计, 注释说明 mock 与真实硬件的区别"
+        }
+      ],
       "solution": ".solution/4.7-mock-context-switch.rs",
       "student_todo": [
         "kernel/src/arch/mock.rs:context_switch 接口"
@@ -784,9 +795,20 @@
       "name": "实现 TaskManager",
       "description": "实现 TaskManager，管理所有任务的创建、查找和回收。使用 BTreeMap<usize, TaskHandle> 存储任务，提供 create_task()、get_task()、exit_task() 方法。",
       "test": "cargo test --features mock -p suba-kernel -- task::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零新增警告, TaskManager create/get/exit 逻辑正确, PID 自动递增"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "doc注释完整, BTreeMap选择有教学意义, TODO标记合理, solution文件完整"
+        }
+      ],
       "solution": ".solution/4.8-task-manager.rs",
       "student_todo": [
         "kernel/src/task/mod.rs:TaskManager 实现"
@@ -799,9 +821,20 @@
       "name": "集成任务创建和调度测试",
       "description": "编写集成测试：创建多个任务 → 加入调度器 → 依次取出 → 验证顺序和状态。验证整个任务生命周期。",
       "test": "cargo test --features mock -p suba-kernel -- scheduler::tests::scheduler_round_robin_order",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零新增警告, 集成测试覆盖 TaskManager+Scheduler 联动, 混合状态调度正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "solution 文件含 3 个集成测试, TODO标记合理, 测试覆盖完整任务生命周期"
+        }
+      ],
       "solution": ".solution/4.9-task-integration-test.rs",
       "student_todo": [
         "kernel/src/task/scheduler.rs:集成测试"

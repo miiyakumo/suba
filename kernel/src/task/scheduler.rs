@@ -159,4 +159,32 @@ mod tests {
         assert_eq!(sched.next().unwrap().lock().pid, 2);
         assert_eq!(sched.next().unwrap().lock().pid, 3);
     }
+
+    // TODO: 编写集成测试 — TaskManager + Scheduler 联动
+    // 参考 .solution/4.9-task-integration-test.rs
+    //
+    // 测试要点：
+    // - TaskManager 创建任务 → 加入 Scheduler → 调度验证
+    // - 混合状态（Ready/Exited）的调度行为
+
+    #[test]
+    fn task_manager_scheduler_integration() {
+        use crate::task::TaskManager;
+
+        let mut tm = TaskManager::new();
+        let mut sched = RoundRobinScheduler::new();
+
+        let t1 = tm.create_task(0x8020_0000, 0x8040_0000, 0);
+        let t2 = tm.create_task(0x8020_0000, 0x8050_0000, 0);
+
+        sched.enqueue(t1.clone());
+        sched.enqueue(t2.clone());
+
+        assert_eq!(sched.next().unwrap().lock().pid, 1);
+        assert_eq!(sched.next().unwrap().lock().pid, 2);
+
+        // 退出任务 1 后调度器应跳过
+        tm.exit_task(1, 0);
+        assert!(sched.next().is_none());
+    }
 }
