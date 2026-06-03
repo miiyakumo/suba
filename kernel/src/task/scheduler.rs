@@ -17,7 +17,7 @@ use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use spin::Mutex;
 
-use super::task::Task;
+use super::task::{Task, TaskState};
 
 /// 任务句柄类型
 pub type TaskHandle = Arc<Mutex<Task>>;
@@ -27,6 +27,12 @@ pub type TaskHandle = Arc<Mutex<Task>>;
 /// 使用 FIFO 队列管理就绪任务。
 pub struct RoundRobinScheduler {
     queue: VecDeque<TaskHandle>,
+}
+
+impl Default for RoundRobinScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RoundRobinScheduler {
@@ -50,10 +56,20 @@ impl RoundRobinScheduler {
     /// 3. 如果不是就绪状态，跳过并尝试下一个
     /// 4. 队列为空时返回 None
     pub fn next(&mut self) -> Option<TaskHandle> {
-        // TODO: 学生实现 Round-Robin 调度算法
-        // 提示：使用 VecDeque::pop_front() 取出队头任务
-        // 提示：检查任务状态，非 Ready 的任务放回队尾或跳过
-        todo!("实现 Round-Robin 调度算法")
+        let len = self.queue.len();
+        for _ in 0..len {
+            let task = self.queue.pop_front()?;
+            // SAFETY: try_lock 不会 panic，仅在已被持有时返回 None
+            let state = task.try_lock().map(|t| t.state);
+            match state {
+                Some(TaskState::Ready) => return Some(task),
+                _ => {
+                    // 非就绪任务放回队尾，继续尝试下一个
+                    self.queue.push_back(task);
+                }
+            }
+        }
+        None
     }
 
     /// 队列中的任务数量

@@ -613,9 +613,20 @@
       "name": "定义 Task 结构体",
       "description": "在 kernel/src/task/task.rs 中定义 Task 结构体（TCB），包含 pid、state、context、kstack_top、ustack_top、exit_code 字段。提供 new() 和 context_ptr() 方法。",
       "test": "cargo test --features mock -p suba-kernel -- task::tests::task_creation",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, Task::new 正确初始化所有字段, context_ptr 返回有效指针"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "TCB 概念有文档注释, 字段含义清晰, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/4.1-task-struct.rs",
       "student_todo": [
         "kernel/src/task/task.rs:Task 结构体"
@@ -628,9 +639,20 @@
       "name": "定义 TaskState 状态机",
       "description": "在 kernel/src/task/task.rs 中定义 TaskState 枚举（Ready、Running、Waiting、Exited）。理解任务在其生命周期中的状态转换。",
       "test": "cargo test --features mock -p suba-kernel -- task::tests::task_state_transitions",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, 简单枚举 derive 完整"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "状态机 ASCII 图清晰, 变体文档注释完整, .solution/ 参考实现完整"
+        }
+      ],
       "solution": ".solution/4.2-task-state.rs",
       "student_todo": [
         "kernel/src/task/task.rs:TaskState 枚举"
@@ -643,9 +665,20 @@
       "name": "定义 Scheduler trait",
       "description": "定义调度器 trait，包含 enqueue()、next()、len()、is_empty() 方法。理解调度器接口的设计——如何抽象不同的调度算法。",
       "test": "cargo test --features mock -p suba-kernel -- scheduler::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo test 通过零警告, next() 逻辑正确处理 Ready/非Ready/空队列, try_lock 避免死锁"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "模块级教学注释清晰, 算法步骤在注释中描述, .solution/ 含 Scheduler trait 参考"
+        }
+      ],
       "solution": ".solution/4.3-scheduler-trait.rs",
       "student_todo": [
         "kernel/src/task/scheduler.rs:Scheduler 接口设计"
