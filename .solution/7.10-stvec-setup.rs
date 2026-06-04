@@ -1,9 +1,7 @@
-// .solution/7.10-stvec-setup.rs — stvec 陷阱向量设置参考实现
+// .solution/7.10-stvec-setup.rs — stvec 陷阱向量设置
 //
-// 本文件展示如何在 rust_main 中设置 stvec CSR 为 trap_entry 地址。
-
-// 在 os/src/arch/riscv64/mod.rs 中添加 init_trap 函数：
-
+// 在 os/src/arch/riscv64/mod.rs 中的 init_trap() 函数：
+//
 /// 初始化陷阱处理：设置 stvec CSR 为 trap_entry 地址
 ///
 /// ## 教学概念：stvec CSR
@@ -29,9 +27,10 @@ pub fn init_trap() {
         );
     }
 }
-
-// 在 os/src/main.rs 的 rust_main 中调用：
 //
-//   // ---- Step 3: 设置陷阱向量 ----
-//   arch::riscv64::init_trap();
-//   uart_puts("[suba] trap vector set\n");
+// 在 os/src/main.rs 的 rust_main() 中调用：
+//
+// // ---- Step 3: 设置陷阱向量 ----
+// // 将 stvec CSR 设置为 trap_entry 的地址
+// // 发生异常/中断时 CPU 会跳转到 stvec 指向的地址
+// arch::riscv64::init_trap();

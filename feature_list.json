@@ -1460,8 +1460,11 @@
       "description": "在 rust_main 中将 stvec CSR 设置为 trap_entry 的地址。理解 RISC-V 的陷阱向量机制——发生异常/中断时 CPU 跳转到 stvec 指向的地址。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
-      "review_status": null,
-      "review_log": [],
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, init_trap() 用 csrw stvec 写入 trap_entry 地址, Direct 模式",
+        "pedagogy: stvec CSR 格式和 Direct/Vectored 模式教学注释, student_todo 标记在 main.rs, .solution/ 完整"
+      ],
       "solution": ".solution/7.10-stvec-setup.rs",
       "student_todo": [
         "os/src/main.rs:stvec 设置"

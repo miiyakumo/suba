@@ -178,8 +178,10 @@ pub extern "C" fn rust_main() -> ! {
     uart_puts("[suba] heap initialized\n");
 
     // ---- Step 3: 设置陷阱向量 ----
-    // 将 stvec CSR 设置为 trap_entry 的地址
-    // 发生异常/中断时 CPU 会跳转到 trap_entry
+    // TODO(student): 将 stvec CSR 设置为 trap_entry 的地址
+    // 发生异常/中断时 CPU 会跳转到 stvec 指向的地址
+    // 理解: stvec 是 RISC-V 的陷阱向量寄存器 (类似 x86 的 IDTR)
+    // init_trap() 写入 stvec: csrw stvec, trap_entry
     arch::riscv64::init_trap();
     uart_puts("[suba] trap vector set\n");
 
