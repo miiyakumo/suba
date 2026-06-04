@@ -1721,7 +1721,7 @@
       "description": "为 UART 驱动实现 kernel 的 Console trait，将 putchar/getchar 映射到 UART MMIO 操作。替换 os 中现有的 SBI 调用。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
-      "review_status": null,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/9.4-uart-console.rs",
       "student_todo": [

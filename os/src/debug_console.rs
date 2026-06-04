@@ -1,13 +1,23 @@
 /// 用于在早期阶段打印调试信息的控制台模块
 ///
-/// 提供 `eprint!` 和 `eprintln!` 宏，通过 SBI 调用输出到控制台。
+/// 提供 `eprint!` 和 `eprintln!` 宏，通过 UART MMIO 输出到控制台。
 /// 这些函数通过宏间接使用，编译器无法追踪调用链。
+///
+/// ## 教学概念：SBI vs MMIO
+///
+/// SBI (Supervisor Binary Interface) 调用需要陷入 M-mode（OpenSBI），
+/// 再由 OpenSBI 操作硬件——涉及两次特权级切换，开销较大。
+///
+/// UART MMIO 直接读写硬件寄存器，无需特权级切换，更高效。
+/// 内核初始化 UART 后，应使用 MMIO 替代 SBI 进行控制台 I/O。
 
 use core::fmt::{self, Write};
+use crate::driver::uart::UartConsole;
+use suba_kernel::driver::Console;
 
 #[allow(dead_code)]
 fn console_putchar(c: u8) {
-    sbi_rt::console_write_byte(c);
+    UartConsole::putchar(c);
 }
 
 #[allow(dead_code)]

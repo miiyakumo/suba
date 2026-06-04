@@ -28,6 +28,7 @@ mod driver;
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use suba_kernel::driver::Console;
 use suba_kernel::mm::heap;
 use suba_kernel::task::{RoundRobinScheduler, TaskManager};
 
@@ -116,17 +117,18 @@ unsafe impl core::alloc::GlobalAlloc for BumpAllocator {
 #[global_allocator]
 static GLOBAL_ALLOC: BumpAllocator = BumpAllocator::new();
 
-/// 全局 UART 实例（UART0 @ 0x1000_0000）
-static UART0: driver::uart::Uart = driver::uart::Uart::new(driver::uart::UART0_BASE);
-
-/// 向 UART 输出一个字符（轮询模式）
+/// 向控制台输出一个字符
+///
+/// 使用 `UartConsole` 的 `Console` trait 实现，通过 UART MMIO 输出。
 pub fn uart_putchar(c: u8) {
-    UART0.putchar(c);
+    driver::uart::UartConsole::putchar(c);
 }
 
-/// 向 UART 输出字符串
+/// 向控制台输出字符串
+///
+/// 使用 `UartConsole` 的 `Console` trait 实现，包含 `\n` → `\r\n` 转换。
 pub fn uart_puts(s: &str) {
-    UART0.puts(s);
+    driver::uart::UartConsole::puts(s);
 }
 
 /// 内核 Rust 入口
