@@ -334,14 +334,48 @@ pub extern "C" fn rust_main() -> ! {
 
             // 获取内核栈顶（供 trap_return 使用）
             unsafe extern "C" { fn boot_stack_top(); }
-            let _kernel_sp = boot_stack_top as usize;
+            let kernel_sp = boot_stack_top as usize;
 
-            // 切换到用户态
-            // 设置 TrapFrame：sepc=entry, sp=stack_top, a0=argc(0)
-            // SAFETY: entry 和 stack_top 由 ELF 加载器验证
-            // uart_puts("[boot] entering user mode...\n");
-            // arch::riscv64::enter_user_mode(entry, stack_top, kernel_sp, 0);
-            uart_puts("[boot] user mode entry: deferred (need full trap support)\n");
+            // ============================================================
+            // Step 9.5: sret 切换到用户态
+            // ============================================================
+            // 通过 sret 指令从 S-mode 切换到 U-mode。
+            //
+            // ## 教学概念：sret 切换的完整流程
+            //
+            // enter_user_mode() 内部执行以下步骤：
+            // 1. 创建 TrapFrame，设置：
+            //    - sepc = 用户入口地址（sret 后的 PC）
+            //    - sstatus.SPP = 0（sret 后进入 U-mode）
+            //    - sstatus.SPIE = 1（sret 后启用中断）
+            //    - x2_sp = 用户栈顶
+            //    - kernel_sp = 内核栈顶（从用户态 trap 回来时使用）
+            //    - x10_a0 = argc（用户程序参数）
+            // 2. 将 TrapFrame 指针写入 sscratch CSR
+            //    （从用户态 trap 回来时，trap_entry 读取 sscratch 恢复内核上下文）
+            // 3. 调用 trap_return → 恢复寄存器 → sret
+            //
+            // sret 硬件行为：
+            //   PC ← sepc（跳转到用户入口）
+            //   特权级 ← SPP = 0（切换到 U-mode）
+            //   SIE ← SPIE（恢复中断使能）
+            //
+            // ## 教学概念：sscratch 的作用
+            //
+            // sscratch 保存内核栈上的 TrapFrame 指针。
+            // 当从 U-mode 陷入 S-mode 时：
+            //   1. CPU 跳转到 stvec（trap_entry）
+            //   2. trap_entry 读取 sscratch 获取 TrapFrame 地址
+            //   3. 保存全部寄存器到 TrapFrame
+            //   4. 切换到内核栈（sp ← kernel_sp）
+            //   5. 调用 trap_handler
+            //
+            // 这样，无论用户态的 sp 是什么值，内核都能正确保存上下文。
+            uart_puts("[boot] entering user mode (sret)...\n");
+            // entry 和 stack_top 由 ELF 加载器验证，
+            // kernel_sp 指向有效的内核栈顶
+            arch::riscv64::enter_user_mode(entry, stack_top, kernel_sp, 0);
+            // enter_user_mode 不返回（已切换到用户态）
         }
         Err(_) => {
             uart_puts("[boot] WARN: init ELF load failed, running in kernel mode\n");
