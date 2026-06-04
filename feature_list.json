@@ -1645,8 +1645,8 @@
       "name": "页表测试",
       "description": "编写 SV39 页表的测试：映射一个虚拟页 → 翻译验证 → 取消映射 → 翻译返回 None。验证页表操作的正确性。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/8.9-page-table-test.rs",
       "student_todo": [
