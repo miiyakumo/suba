@@ -43,6 +43,82 @@
 //! 我们使用 UART0，它是 QEMU 默认的控制台。
 
 use core::ptr::{read_volatile, write_volatile};
+use spin::Mutex;
+
+// ============================================================================
+// UART 接收缓冲区
+// ============================================================================
+
+/// UART 接收环形缓冲区容量
+pub const RX_BUF_SIZE: usize = 256;
+
+/// UART 接收环形缓冲区
+///
+/// ## 教学概念：环形缓冲区 (Ring Buffer)
+///
+/// 环形缓冲区是内核中常用的数据结构，用于在中断（生产者）和
+/// 线程（消费者）之间安全传递数据。
+///
+/// ```text
+///   读指针 (read_pos)     写指针 (write_pos)
+///        ↓                      ↓
+///   [  A  |  B  |  C  |  _  |  _  ]
+/// ```
+///
+/// - `push()`: 在 write_pos 写入，指针前进
+/// - `pop()`:  从 read_pos 读取，指针前进
+/// - 缓冲区满时丢弃新数据（背压策略）
+/// - 单线程访问不需要额外锁保护（中断上下文中使用）
+pub struct RxBuffer {
+    buf: [u8; RX_BUF_SIZE],
+    read_pos: usize,
+    write_pos: usize,
+    count: usize,
+}
+
+impl RxBuffer {
+    /// 创建空缓冲区
+    pub const fn new() -> Self {
+        Self {
+            buf: [0; RX_BUF_SIZE],
+            read_pos: 0,
+            write_pos: 0,
+            count: 0,
+        }
+    }
+
+    /// 写入一个字节
+    ///
+    /// 缓冲区满时返回 `false`，数据被丢弃。
+    pub fn push(&mut self, byte: u8) -> bool {
+        if self.count >= RX_BUF_SIZE {
+            return false;
+        }
+        self.buf[self.write_pos] = byte;
+        self.write_pos = (self.write_pos + 1) % RX_BUF_SIZE;
+        self.count += 1;
+        true
+    }
+
+    /// 读取一个字节
+    ///
+    /// 缓冲区空时返回 `None`。
+    pub fn pop(&mut self) -> Option<u8> {
+        if self.count == 0 {
+            return None;
+        }
+        let byte = self.buf[self.read_pos];
+        self.read_pos = (self.read_pos + 1) % RX_BUF_SIZE;
+        self.count -= 1;
+        Some(byte)
+    }
+}
+
+/// 全局 UART 接收缓冲区
+///
+/// 由中断处理函数写入，由 getchar 读取。
+/// 使用 spin::Mutex 保护并发访问。
+pub static RX_BUFFER: Mutex<RxBuffer> = Mutex::new(RxBuffer::new());
 
 // ============================================================================
 // UART MMIO 基地址
@@ -366,17 +442,96 @@ impl Uart {
         }
     }
 
-    /// 轮询方式接收一个字节（阻塞）
+    /// 接收一个字节（中断驱动，阻塞）
     ///
-    /// 等待数据就绪，然后读取 RBR。
+    /// 优先从软件缓冲区读取（中断模式），缓冲区为空时回退到轮询。
     ///
-    /// ## 教学概念：阻塞 I/O
+    /// ## 教学概念：中断驱动 I/O
     ///
-    /// `getchar` 会阻塞直到有数据可读。
-    /// 与 `putchar` 类似，使用轮询方式检查 LSR 的 DR 位。
+    /// 中断模式下，数据到达时 UART 触发中断，中断处理函数将数据
+    /// 存入环形缓冲区。`getchar` 从缓冲区读取数据，无需忙等。
+    ///
+    /// 回退到轮询的原因：中断可能尚未启用（初始化阶段），
+    /// 此时直接轮询硬件确保 `getchar` 始终可用。
     pub fn getchar(&self) -> u8 {
+        // 优先从接收缓冲区读取（中断模式）
+        {
+            let mut buf = RX_BUFFER.lock();
+            if let Some(byte) = buf.pop() {
+                return byte;
+            }
+        }
+        // 回退：轮询模式（中断未启用时）
         while !self.is_data_ready() {}
         self.read_rbr()
+    }
+
+    /// 非阻塞接收（中断驱动）
+    ///
+    /// 从软件缓冲区读取一个字节，无数据时立即返回 `None`。
+    ///
+    /// ## 教学概念：非阻塞 I/O
+    ///
+    /// 与阻塞的 `getchar` 不同，`try_getchar` 不会等待。
+    /// 适用于事件循环、轮询检查等场景。
+    pub fn try_getchar(&self) -> Option<u8> {
+        let mut buf = RX_BUFFER.lock();
+        buf.pop()
+    }
+
+    // --- 中断模式 I/O ---
+
+    /// 使能接收数据就绪中断
+    ///
+    /// 设置 IER 的 ERBFI (Enable Received Data Available Interrupt) 位。
+    /// 当 RBR 中有数据可读时，UART 会触发中断。
+    ///
+    /// ## 教学概念：UART 中断使能
+    ///
+    /// IER (Interrupt Enable Register) 控制四种中断源：
+    /// - bit 0 (ERBFI): 接收数据就绪 → 数据到达时触发
+    /// - bit 1 (ETBEI): 发送缓冲区空 → 可以开始发送下一字节
+    /// - bit 2 (ELSI):  接收线路状态变化 → 错误检测
+    /// - bit 3 (EDSSI): 调制解调器状态变化
+    ///
+    /// 中断使能后，UART 会通过 IRQ 线通知 PLIC，
+    /// PLIC 再通知 CPU 触发 Supervisor external interrupt。
+    pub fn enable_receive_interrupt(&self) {
+        // SAFETY: IER 偏移量 1 是有效的 UART 寄存器
+        unsafe {
+            self.write_reg(reg::IER, IerFlags::ERBFI);
+        }
+    }
+
+    /// 禁用所有 UART 中断
+    pub fn disable_interrupts(&self) {
+        // SAFETY: IER 偏移量 1 是有效的 UART 寄存器
+        unsafe {
+            self.write_reg(reg::IER, 0x00);
+        }
+    }
+
+    /// UART 中断处理函数
+    ///
+    /// 从 RBR 读取所有可用数据并存入接收缓冲区。
+    /// 应在外部中断处理路径中调用。
+    ///
+    /// ## 教学概念：中断处理中的缓冲
+    ///
+    /// 中断处理函数应尽可能快地执行：
+    /// 1. 从硬件读取数据（RBR → 缓冲区）
+    /// 2. 返回（让出 CPU 给被中断的代码）
+    ///
+    /// 耗时的数据处理应推迟到线程上下文中进行。
+    /// 这就是为什么我们用环形缓冲区在中断和线程之间传递数据。
+    pub fn handle_interrupt(&self) {
+        // 读取所有可用数据（FIFO 模式下可能有多个字节）
+        while self.is_data_ready() {
+            let byte = self.read_rbr();
+            // 写入全局缓冲区，满时丢弃
+            let mut buf = RX_BUFFER.lock();
+            buf.push(byte);
+        }
     }
 }
 

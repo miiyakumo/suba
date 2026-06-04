@@ -1705,7 +1705,7 @@
       "name": "实现 UART 接收（中断模式）",
       "description": "实现 UART 的 getchar（中断驱动）：配置 IER（Interrupt Enable Register），在中断处理函数中从 RBR（Receive Buffer Register）读取数据。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.3-uart-getchar.rs",
