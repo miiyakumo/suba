@@ -1917,7 +1917,7 @@
       "name": "初始化用户态 TrapFrame",
       "description": "设置用户态的初始 TrapFrame：sepc = 用户入口、sstatus.SPP = User、sp = 用户栈顶、a0 = argc。为 sret 到用户态做准备。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/10.7-user-trapframe.rs",
