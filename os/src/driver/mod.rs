@@ -17,6 +17,7 @@
 //! 与普通内存不同，MMIO 地址的读写有副作用（会改变硬件状态），
 //! 因此必须使用 `volatile` 访问，防止编译器优化掉"看似无用"的读写。
 
+pub mod clint;
 pub mod uart;
 
 /// UART Console 类型别名

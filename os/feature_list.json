@@ -1721,7 +1721,7 @@
       "description": "为 UART 驱动实现 kernel 的 Console trait，将 putchar/getchar 映射到 UART MMIO 操作。替换 os 中现有的 SBI 调用。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
-      "review_status": "approved",
+      "review_status": null,
       "review_log": [],
       "solution": ".solution/9.4-uart-console.rs",
       "student_todo": [
@@ -1735,7 +1735,7 @@
       "name": "CLINT 时钟初始化",
       "description": "在 os/src/driver/clint.rs 中实现 CLINT（Core Local Interrupter）驱动。配置 mtimecmp 寄存器设置时钟中断间隔。QEMU virt 的 CLINT 基地址为 0x02000000。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.5-clint-init.rs",
