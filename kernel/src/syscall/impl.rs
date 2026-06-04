@@ -7,30 +7,67 @@
 //! 1. 验证用户参数（地址合法性、缓冲区大小等）
 //! 2. 执行内核操作
 //! 3. 返回结果（成功返回值或错误码）
+//!
+//! ## VFS 集成
+//! sys_write 和 sys_read 通过全局 FdTable 访问 VFS 文件：
+//! - 用户传入 fd（文件描述符编号）
+//! - 内核通过 FdTable 查找对应的 VfsFile
+//! - 调用 VfsFile 的 read/write 方法完成实际 I/O
+
+use spin::Mutex;
+use crate::fs::FdTable;
+
+/// 全局文件描述符表。
+///
+/// 在真实内核中，每个任务有自己的 FdTable（存在 TCB 中）。
+/// Phase 1 Mock 环境使用全局表简化测试。
+static FD_TABLE: Mutex<FdTable> = Mutex::new(FdTable::new());
+
+/// 获取全局 FdTable 的可变引用。
+///
+/// 用于测试设置和标准 FD 初始化。
+pub fn with_fd_table<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut FdTable) -> R,
+{
+    let mut table = FD_TABLE.lock();
+    f(&mut table)
+}
 
 /// 写入系统调用。
 ///
 /// 将用户缓冲区的数据写入文件描述符。
 ///
 /// # 参数
-/// - `fd`: 文件描述符（1 = stdout, 2 = stderr）
+/// - `fd`: 文件描述符（1 = stdout, 2 = stderr，或其他已打开的 FD）
 /// - `buf`: 用户空间缓冲区地址
 /// - `len`: 写入字节数
 ///
 /// # 返回值
 /// 成功返回写入的字节数，失败返回 -1。
+///
+/// ## VFS 路径
+/// sys_write → FdTable::get_mut(fd) → VfsFile::write(buf)
 pub fn sys_write(fd: usize, _buf: usize, len: usize) -> usize {
     // TODO: 学生实现 — 在真实内核中需要：
-    // 1. 检查 fd 是否有效（目前只有 stdout=1 和 stderr=2）
-    // 2. 从用户空间读取 buf 中的 len 字节
-    // 3. 通过控制台输出
-    // 4. 返回写入的字节数
-    //
-    // Mock: 只验证 fd，返回写入长度
-    if fd != 1 && fd != 2 {
-        return -1isize as usize;
+    // 1. 从当前任务的 TCB 获取 FdTable
+    // 2. 通过 FdTable 查找 fd 对应的 VfsFile
+    // 3. 从用户空间复制 buf 数据到内核缓冲区
+    // 4. 调用 VfsFile::write 写入数据
+    // 5. 返回写入的字节数
+    let mut table = FD_TABLE.lock();
+    match table.get_mut(fd) {
+        Some(file) => {
+            // Mock: 使用 len 个零字节模拟写入
+            // 真实内核中需要 copy_from_user(buf, len)
+            let mock_data = alloc::vec![0u8; len];
+            match file.write(&mock_data) {
+                Ok(n) => n,
+                Err(()) => (-1isize) as usize,
+            }
+        }
+        None => (-1isize) as usize,
     }
-    len
 }
 
 /// 读取系统调用。
@@ -38,24 +75,38 @@ pub fn sys_write(fd: usize, _buf: usize, len: usize) -> usize {
 /// 从文件描述符读取数据到用户缓冲区。
 ///
 /// # 参数
-/// - `fd`: 文件描述符（0 = stdin）
+/// - `fd`: 文件描述符（0 = stdin，或其他已打开的 FD）
 /// - `buf`: 用户空间缓冲区地址
 /// - `len`: 读取字节数
 ///
 /// # 返回值
 /// 成功返回读取的字节数，失败返回 -1。
-pub fn sys_read(fd: usize, _buf: usize, _len: usize) -> usize {
+///
+/// ## VFS 路径
+/// sys_read → FdTable::get_mut(fd) → VfsFile::read(buf)
+pub fn sys_read(fd: usize, _buf: usize, len: usize) -> usize {
     // TODO: 学生实现 — 在真实内核中需要：
-    // 1. 检查 fd 是否有效（目前只有 stdin=0）
-    // 2. 从控制台读取字符
-    // 3. 写入用户缓冲区
-    // 4. 返回读取的字节数
-    //
-    // Mock: 只验证 fd，返回 0（无输入）
-    if fd != 0 {
-        return -1isize as usize;
+    // 1. 从当前任务的 TCB 获取 FdTable
+    // 2. 通过 FdTable 查找 fd 对应的 VfsFile
+    // 3. 调用 VfsFile::read 读取数据到内核缓冲区
+    // 4. 从内核缓冲区复制到用户空间 buf
+    // 5. 返回读取的字节数
+    let mut table = FD_TABLE.lock();
+    match table.get_mut(fd) {
+        Some(file) => {
+            // 分配临时缓冲区读取数据
+            let mut buf = alloc::vec![0u8; len];
+            match file.read(&mut buf) {
+                Ok(n) => {
+                    // Mock: 丢弃读取的数据（真实内核中需要 copy_to_user）
+                    // 测试可通过 FdTable 直接验证文件状态
+                    n
+                }
+                Err(()) => -1isize as usize,
+            }
+        }
+        None => -1isize as usize,
     }
-    0
 }
 
 /// 退出系统调用。

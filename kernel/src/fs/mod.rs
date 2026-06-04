@@ -42,7 +42,7 @@ pub struct FdTable {
 
 impl FdTable {
     /// 创建新的文件描述符表
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             files: alloc::vec::Vec::new(),
         }

@@ -1237,9 +1237,20 @@
       "name": "连接 sys_write/sys_read 到 VFS",
       "description": "修改 sys_write 和 sys_read，通过 FdTable 查找文件描述符，调用 VfsFile 的 read/write 方法。实现完整的 用户syscall → 内核 → VFS 路径。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "round": 1,
+          "status": "correctness",
+          "notes": "sys_write/sys_read go through FdTable→VfsFile; global FD_TABLE with spin::Mutex; invalid fd returns -1; all 59 tests pass, zero warnings"
+        },
+        {
+          "round": 2,
+          "status": "pedagogy",
+          "notes": "Module docs explain VFS integration path; with_fd_table helper for testing; TODO markers for real kernel copy_from/to_user; solution file complete"
+        }
+      ],
       "solution": ".solution/6.8-syscall-to-vfs.rs",
       "student_todo": [
         "kernel/src/syscall/impl.rs:通过 FdTable 访问 VFS"
