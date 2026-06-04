@@ -1902,7 +1902,7 @@
       "name": "创建用户栈",
       "description": "为用户程序创建栈空间：分配物理帧 → 映射到用户地址空间的栈区域 → 设置栈顶指针。栈从高地址向低地址增长。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/10.6-user-stack.rs",

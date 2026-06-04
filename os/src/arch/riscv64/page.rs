@@ -1429,7 +1429,7 @@ pub fn run_tests() {
 }
 
 /// 打印十六进制数字（调试辅助）
-fn print_hex(val: usize) {
+pub fn print_hex(val: usize) {
     use crate::uart_putchar;
     uart_putchar(b'0');
     uart_putchar(b'x');

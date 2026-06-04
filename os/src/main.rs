@@ -233,6 +233,27 @@ pub extern "C" fn rust_main() -> ! {
     uart_puts("[suba] running page table tests...\n");
     arch::riscv64::page::run_tests();
 
+    // ---- Step 5.5: 用户栈创建测试 ----
+    // 创建用户地址空间并映射用户栈，验证栈可用
+    uart_puts("[suba] creating user stack...\n");
+    match arch::riscv64::page::UserAddrSpace::new() {
+        Ok(user_space) => {
+            match user_space.map_user_stack() {
+                Ok(stack_top) => {
+                    uart_puts("[suba] user stack mapped: top=");
+                    arch::riscv64::page::print_hex(stack_top);
+                    uart_puts(", size=8MB\n");
+                }
+                Err(_) => {
+                    uart_puts("[suba] WARN: user stack mapping failed\n");
+                }
+            }
+        }
+        Err(_) => {
+            uart_puts("[suba] WARN: user addr space creation failed\n");
+        }
+    }
+
     // ---- Step 6: 初始化任务系统 ----
     let mut tm = TaskManager::new();
     let mut sched = RoundRobinScheduler::new();
