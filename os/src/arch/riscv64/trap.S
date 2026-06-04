@@ -167,10 +167,15 @@ trap_entry:
     # ---- Step 5: 调用 trap_handler ----
     # TODO(student): 跳转到 Rust 的 trap_handler 函数
     # a0 已经是 TrapFrame 指针，直接作为参数传递
-    # 提示: la t0, trap_handler 加载地址，jr t0 跳转
-    # 使用 la+jr 而非 call，避免 JAL 范围限制（大代码模型）
-    la t0, trap_handler
-    jr t0
+    # 提示: 使用 call 宏调用 trap_handler（等价于 auipc+jal）
+    # 注意: a0 (TrapFrame 指针) 在调用后可能被破坏，
+    #       但由于 trap_entry → trap_handler → trap_return 是连续执行，
+    #       trap_handler 内部会调用 trap_return 完成恢复
+    call trap_handler
+
+    # trap_handler 不应返回；若返回则停机
+    wfi
+    j .-4
 
 # ============================================================================
 # trap_return — 陷阱恢复
