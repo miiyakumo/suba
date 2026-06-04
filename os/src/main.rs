@@ -254,12 +254,26 @@ pub extern "C" fn rust_main() -> ! {
         }
     }
 
-    // ---- Step 6: 初始化任务系统 ----
+    // ---- Step 6: 加载 init 程序 ----
+    // TODO(student): 加载 init ELF 程序到用户地址空间
+    //
+    // 完整流程：
+    //   1. 从 initrd/嵌入式二进制获取 ELF 数据
+    //   2. 调用 Riscv64ElfLoader::load_elf_to_space(elf_data)
+    //   3. 激活用户页表：user_space.activate()
+    //   4. 设置 TrapFrame 并 sret 到用户态：
+    //      enter_user_mode(entry, stack_top, kernel_sp, 0)
+    //
+    // 当前阶段：init 程序尚未嵌入，跳过用户态启动。
+    // 后续 feature (11.3) 会完成 ELF 加载和用户态切换。
+    uart_puts("[suba] init program loading: skipped (no embedded ELF yet)\n");
+
+    // ---- Step 7: 初始化任务系统 ----
     let mut tm = TaskManager::new();
     let mut sched = RoundRobinScheduler::new();
     uart_puts("[suba] task system ready\n");
 
-    // ---- Step 4: 创建 idle 任务 ----
+    // ---- Step 8: 创建 idle 任务 ----
     // idle 任务的入口是 idle_loop 函数，栈使用 boot_stack
     unsafe extern "C" {
         fn boot_stack_top();
@@ -272,7 +286,7 @@ pub extern "C" fn rust_main() -> ! {
     sched.enqueue(idle_task);
     uart_puts("[suba] idle task created (PID 1)\n");
 
-    // ---- Step 5: 启动调度 ----
+    // ---- Step 9: 启动调度 ----
     uart_puts("[suba] starting scheduler...\n");
 
     // 从调度器取出第一个任务并执行

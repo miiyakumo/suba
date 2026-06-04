@@ -1962,7 +1962,7 @@
       "name": "内核启动完整流程",
       "description": "将 rust_main 改造为完整的内核启动流程：BSS 清零 → 控制台初始化 → 堆初始化 → 帧分配器初始化 → 内核页表创建 → 中断配置 → 任务系统初始化 → 加载 init 程序 → 启动调度。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/10.10-boot-flow.rs",
