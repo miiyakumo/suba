@@ -57,6 +57,11 @@ pub enum TaskState {
 ///
 /// 这体现了 Unix "一切皆文件" 的理念——连终端输入输出
 /// 也通过文件描述符访问。
+///
+/// ## 地址空间
+/// 每个用户任务有独立的 SV39 页表（satp 字段）。
+/// 内核任务的 satp = 0（使用内核页表，不切换）。
+/// 上下文切换时，调度器激活目标任务的页表。
 pub struct Task {
     /// 任务 ID
     pub pid: usize,
@@ -74,6 +79,45 @@ pub struct Task {
     ///
     /// 创建时预分配 stdin(0)、stdout(1)、stderr(2)。
     pub fd_table: FdTable,
+    /// 页表根物理页号（root_ppn）
+    ///
+    /// SV39 页表的根页表物理页号。
+    /// - 内核任务：0（使用内核页表，不切换）
+    /// - 用户任务：`UserAddrSpace::root_ppn()`
+    ///
+    /// 激活页表时：`satp = (8 << 60) | page_table_root`
+    ///
+    /// ## 教学概念：为什么每任务需要独立页表？
+    ///
+    /// 用户任务需要独立的虚拟地址空间来实现隔离：
+    /// - 任务 A 不能读写任务 B 的内存
+    /// - 每个任务看到的地址空间布局相同（代码/数据/栈）
+    /// - 内核映射在高地址区域共享
+    pub page_table_root: usize,
+
+    /// 用户程序入口地址
+    ///
+    /// 仅用户任务使用。内核任务为 0。
+    /// 用于 trampoline 函数：激活页表后 sret 到此地址。
+    pub user_entry: usize,
+
+    /// 陷阱帧指针（指向架构特定的 TrapFrame）
+    ///
+    /// ## 教学概念：为什么需要 trap_frame_ptr？
+    ///
+    /// 当任务被中断（如时钟中断）打断时，CPU 的全部寄存器被保存到 TrapFrame。
+    /// 调度器切换任务时，需要知道每个任务的 TrapFrame 在哪里，
+    /// 以便在任务被重新调度时恢复其寄存器状态。
+    ///
+    /// - 内核任务（如 idle）：trap_frame_ptr = 0（不需要，使用 context_switch 即可）
+    /// - 用户任务：指向该任务专属的 TrapFrame（由 trap_entry 保存）
+    ///
+    /// ## 教学概念：forkret 路径
+    ///
+    /// 用户任务首次被调度时，context.ra 指向 forkret 函数。
+    /// forkret 读取 trap_frame_ptr，将其写入 sscratch CSR，
+    /// 然后调用 trap_return 恢复 TrapFrame 并 sret 到用户态。
+    pub trap_frame_ptr: usize,
 }
 
 impl Task {
@@ -101,12 +145,26 @@ impl Task {
             ustack_top,
             exit_code: 0,
             fd_table,
+            page_table_root: 0, // 内核任务不切换页表
+            user_entry: 0, // 内核任务无用户入口
+            trap_frame_ptr: 0, // 内核任务无陷阱帧
         }
     }
 
     /// 获取上下文指针
     pub fn context_ptr(&mut self) -> *mut Context {
         &mut self.context as *mut Context
+    }
+
+    /// 设置页表根物理页号
+    ///
+    /// 用于为用户任务设置独立的地址空间。
+    /// 内核任务不需要调用此方法（page_table_root 默认为 0）。
+    ///
+    /// # 参数
+    /// - `ppn`: 页表根物理页号（来自 `UserAddrSpace::root_ppn()`）
+    pub fn set_page_table_root(&mut self, ppn: usize) {
+        self.page_table_root = ppn;
     }
 }
 

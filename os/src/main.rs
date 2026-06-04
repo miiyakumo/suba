@@ -52,7 +52,7 @@ mod util;
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use suba_kernel::arch::CpuOps;
+use suba_kernel::arch::{Arch, CpuOps};
 use suba_kernel::driver::Console;
 use suba_kernel::mm::heap;
 use suba_kernel::task::{RoundRobinScheduler, TaskManager, TaskState};
@@ -241,48 +241,83 @@ fn after_syscall_exit(tf: &mut arch::riscv64::TrapFrame) {
 
 /// 调度器 — 选择下一个任务并切换。
 ///
-/// 如果有其他就绪任务，切换到它。
-/// 如果没有就绪任务，关机。
-///
-/// ## 教学概念：调度器的工作方式
-///
-/// 调度器从就绪队列中取出下一个任务，执行上下文切换。
-/// 当前实现是简化的：如果没有就绪任务就关机。
-/// 完整实现中，idle 任务会永远运行（等待新任务到来）。
+/// 从调度器取出下一个就绪任务，通过上下文切换跳转到该任务。
+/// 如果没有就绪任务，进入 idle 循环（等待中断唤醒）。
 fn schedule() -> ! {
-    if let Some(sched) = SCHEDULER.get() {
-        let mut sched = sched.lock();
-        if let Some(next_task) = sched.next() {
-            let mut task = next_task.lock();
-            task.state = TaskState::Running;
-            let pid = task.pid;
+    // 从调度器获取下一个就绪任务的上下文（拷贝出来后释放锁）
+    let next_ctx = if let Some(sched) = SCHEDULER.get() {
+        sched.lock().next().and_then(|task| {
+            let mut t = task.lock();
+            t.state = TaskState::Running;
+            let pid = t.pid;
             CURRENT_PID.store(pid, Ordering::Relaxed);
 
             uart_puts("[sched] switching to PID ");
             uart_putchar(b'0' + pid as u8);
             uart_putchar(b'\n');
 
-            // TODO(student): 实现真正的上下文切换
-            // 当前简化实现：如果是 idle 任务，进入 idle 循环
-            // 否则，进入 idle 循环（后续 feature 实现完整切换）
-            if pid == 1 {
-                // idle 任务
-                drop(task);
-                drop(sched);
-                idle_loop();
-            } else {
-                // 用户任务：需要切换页表并恢复上下文
-                // 当前简化：进入 idle 循环
-                drop(task);
-                drop(sched);
-                idle_loop();
-            }
+            Some(t.context) // Context 是 Copy
+        })
+    } else {
+        None
+    };
+
+    if let Some(ctx) = next_ctx {
+        let mut dummy = suba_kernel::arch::Context::zero_init();
+        // SAFETY: ctx 来自有效的 Task
+        unsafe {
+            arch::riscv64::Riscv64Arch::context_switch(
+                &mut dummy as *mut suba_kernel::arch::Context,
+                &ctx as *const suba_kernel::arch::Context,
+            );
+        }
+        unreachable!("[suba] schedule: context_switch returned");
+    }
+
+    // 没有就绪任务，进入 idle 循环
+    uart_puts("[sched] no ready tasks, entering idle\n");
+    idle_loop();
+}
+
+/// 用户任务入口 trampoline
+///
+/// 当调度器通过 context_switch 选择一个用户任务时，
+/// CPU 跳转到此函数。此函数负责：
+/// 1. 从 TASK_MANAGER 获取当前任务的信息
+/// 2. 激活任务的页表（page_table_root）
+/// 3. 通过 sret 切换到用户模式
+fn user_task_entry() -> ! {
+    let pid = CURRENT_PID.load(Ordering::Relaxed);
+
+    let (page_table_root, user_entry, ustack_top, kernel_sp) = if let Some(tm) = TASK_MANAGER.get() {
+        let tm = tm.lock();
+        if let Some(task) = tm.get_task(pid) {
+            let t = task.lock();
+            (t.page_table_root, t.user_entry, t.ustack_top, t.kstack_top)
+        } else {
+            uart_puts("[trampoline] ERROR: task not found\n");
+            power::shutdown(false);
+        }
+    } else {
+        uart_puts("[trampoline] ERROR: TASK_MANAGER not initialized\n");
+        power::shutdown(false);
+    };
+
+    // 激活任务的页表
+    if page_table_root != 0 {
+        // SAFETY: page_table_root 是有效的 SV39 页表根 PPN
+        unsafe {
+            arch::riscv64::switch_page_table(page_table_root);
         }
     }
 
-    // 没有就绪任务，关机
-    uart_puts("[sched] no ready tasks, shutting down\n");
-    power::shutdown(false)
+    // 切换到用户模式
+    // SAFETY: user_entry 和 ustack_top 来自有效的 ELF 加载
+    unsafe {
+        arch::riscv64::drop_to_user_mode(user_entry, ustack_top, kernel_sp, 0);
+    }
+
+    unreachable!("[trampoline] drop_to_user_mode returned")
 }
 
 // ===========================================================================

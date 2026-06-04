@@ -119,6 +119,19 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
                 // 由 CLINT 触发：mtime >= mtimecmp
                 // 处理：递增 tick 计数、设置下一次中断
                 crate::driver::clint::handle_timer_interrupt();
+
+                // 如果来自用户态，触发调度决策
+                // SAFETY: SCHEDULE_ON_TIMER 在 init_timer_schedule 中初始化
+                let sstatus = tf.sstatus;
+                let spp = (sstatus >> 8) & 1;  // SPP bit
+                if spp == 0 {
+                    // 来自用户态：调用调度回调设置 NEXT_TRAP_FRAME
+                    unsafe {
+                        if let Some(callback) = SCHEDULE_ON_TIMER {
+                            callback(trap_frame);
+                        }
+                    }
+                }
             }
             9 => {
                 // Supervisor external interrupt (SEI)
@@ -247,12 +260,9 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
         }
     }
 
-    // 处理完毕后，调用 trap_return 恢复寄存器并执行 sret
-    // trap_return 在 trap.S 中实现：从 TrapFrame 恢复所有寄存器，执行 sret
-    // SAFETY: trap_frame 指向有效的 TrapFrame，由 trap.S 保证
-    unsafe {
-        trap_return(trap_frame);
-    }
+    // trap_handler 正常返回到 trap_entry。
+    // trap_entry 会检查 NEXT_TRAP_FRAME，决定是否切换任务。
+    // 如果没有切换，trap_entry 从当前 TrapFrame 恢复寄存器并 sret。
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +297,43 @@ pub unsafe fn init_exit_handler(callback: fn(&mut TrapFrame)) {
     // SAFETY: 单线程初始化阶段，中断尚未启用
     unsafe {
         AFTER_SYSCALL = Some(callback);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 抢占式上下文切换支持
+// ---------------------------------------------------------------------------
+
+/// 下一个任务的 TrapFrame 指针（原子变量）。
+///
+/// 当 trap_handler 决定切换任务时，将下一个任务的 TrapFrame 地址
+/// 写入此变量。trap_entry 在 trap_handler 返回后检查此变量，
+/// 如果非 NULL，则从新 TrapFrame 恢复寄存器并 sret。
+///
+/// ## 教学概念：原子变量与无锁编程
+///
+/// 使用 `AtomicPtr` 而非 `Mutex`，因为：
+/// 1. 此变量在中断上下文中读写，不能使用可能睡眠的锁
+/// 2. 单 CPU 环境下，只需保证编译器不重排序即可
+/// 3. `Ordering::Release/Acquire` 保证可见性
+#[unsafe(no_mangle)]
+pub static NEXT_TRAP_FRAME: core::sync::atomic::AtomicPtr<TrapFrame> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
+/// 时钟中断调度回调函数指针。
+///
+/// 当时钟中断来自用户态时调用，用于设置 NEXT_TRAP_FRAME。
+static mut SCHEDULE_ON_TIMER: Option<fn(*mut TrapFrame)> = None;
+
+/// 注册时钟中断调度回调。
+///
+/// # Safety
+///
+/// 必须在中断处理之前调用（单线程初始化阶段）。
+pub unsafe fn init_timer_schedule(callback: fn(*mut TrapFrame)) {
+    // SAFETY: 单线程初始化阶段，中断尚未启用
+    unsafe {
+        SCHEDULE_ON_TIMER = Some(callback);
     }
 }
 

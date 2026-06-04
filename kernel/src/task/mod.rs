@@ -54,10 +54,40 @@ impl TaskManager {
     /// 创建新任务并返回其句柄
     ///
     /// 自动分配 PID，将任务加入管理器。
+    /// 创建的是内核任务（satp = 0，使用内核页表）。
     pub fn create_task(&mut self, entry: usize, kstack_top: usize, ustack_top: usize) -> TaskHandle {
         let pid = self.next_pid;
         self.next_pid += 1;
         let task = Arc::new(Mutex::new(Task::new(pid, entry, kstack_top, ustack_top)));
+        self.tasks.insert(pid, task.clone());
+        task
+    }
+
+    /// 创建用户任务并返回其句柄
+    ///
+    /// 与 `create_task` 类似，但额外设置独立的页表和用户入口。
+    /// 用户任务在上下文切换时会切换到自己的地址空间。
+    ///
+    /// # 参数
+    /// - `entry`: 内核线程入口（trampoline 函数）
+    /// - `kstack_top`: 内核栈顶地址
+    /// - `ustack_top`: 用户栈顶地址
+    /// - `page_table_root`: 页表根物理页号（来自 `UserAddrSpace::root_ppn()`）
+    /// - `user_entry`: 用户程序入口地址（sret 目标）
+    pub fn create_user_task(
+        &mut self,
+        entry: usize,
+        kstack_top: usize,
+        ustack_top: usize,
+        page_table_root: usize,
+        user_entry: usize,
+    ) -> TaskHandle {
+        let pid = self.next_pid;
+        self.next_pid += 1;
+        let mut task = Task::new(pid, entry, kstack_top, ustack_top);
+        task.set_page_table_root(page_table_root);
+        task.user_entry = user_entry;
+        let task = Arc::new(Mutex::new(task));
         self.tasks.insert(pid, task.clone());
         task
     }

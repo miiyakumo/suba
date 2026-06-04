@@ -1,9 +1,10 @@
 # trap.S — RISC-V 陷阱入口和恢复
 #
 # 当 CPU 发生陷阱（中断/异常/系统调用）时，硬件跳转到 stvec 指向的地址。
-# 本文件实现两个核心汇编函数：
-#   - trap_entry: 保存全部寄存器到 TrapFrame，切换到内核栈，调用 trap_handler
-#   - trap_return:  从 TrapFrame 恢复全部寄存器，执行 sret 返回
+# 本文件实现三个核心汇编函数：
+#   - trap_entry:  保存全部寄存器到 TrapFrame，切换到内核栈，调用 trap_handler
+#   - trap_return: 从 TrapFrame 恢复全部寄存器，执行 sret 返回
+#   - forkret:     用户任务首次调度时的入口，设置 sscratch 后调用 trap_return
 #
 # ## 教学概念：RISC-V 陷阱处理流程
 #
@@ -67,38 +68,22 @@
     .section .text
     .globl trap_entry
     .globl trap_return
+    .globl forkret
     .align 2
 
 # ============================================================================
 # trap_entry — 陷阱入口
 # ============================================================================
-# 硬件通过 stvec 跳转到此处。
-# 此时 sscratch 指向当前任务的 TrapFrame。
-#
-# 步骤：
-# 1. 交换 sscratch 和 a0（a0 ← TrapFrame 指针）
-# 2. 保存全部 31 个通用寄存器到 TrapFrame
-# 3. 保存 sepc、sstatus CSR
-# 4. 如果从用户态进入（SPP=0），切换到内核栈
-# 5. 调用 Rust 的 trap_handler(trap_frame_ptr)
 trap_entry:
-    # ---- Step 1: 获取 TrapFrame 指针 ----
-    # TODO(student): 用 csrrw 交换 a0 和 sscratch
-    # 交换后：a0 = TrapFrame 指针，sscratch = 原 a0 值
-    # 提示: csrrw rd, csr, rs — 原子交换 rd 和 csr 的值
+    # Step 1: 获取 TrapFrame 指针
+    # sscratch 在进入用户态前被设置为 TrapFrame 地址
+    # csrrw 原子交换 a0 和 sscratch：a0 ← sscratch (TrapFrame 指针)
     csrrw a0, sscratch, a0
 
-    # ---- Step 2: 保存全部通用寄存器 ----
-    # TODO(student): 用 sd 指令保存所有寄存器到 a0 指向的 TrapFrame
-    # 注意：a0 此时是 TrapFrame 指针，原 a0 值在 sscratch 中
-    # TrapFrame 布局: sepc=offset 0, ra=offset 8, sp=offset 16, ...
-    # 提示: sd rs, offset(base) — 将寄存器 rs 存储到 base+offset 地址
-
-    # 保存 sepc（陷阱返回地址）
+    # Step 2: 保存全部通用寄存器
     csrr t0, sepc
     sd t0, 0(a0)
 
-    # 保存通用寄存器（除了 a0，后面单独处理）
     sd ra,  8(a0)
     sd sp,  16(a0)
     sd gp,  24(a0)
@@ -108,7 +93,6 @@ trap_entry:
     sd t2,  56(a0)
     sd s0,  64(a0)
     sd s1,  72(a0)
-    # a0 在 Step 3 保存（先从 sscratch 恢复原值）
     sd a1,  88(a0)
     sd a2,  96(a0)
     sd a3,  104(a0)
@@ -131,82 +115,56 @@ trap_entry:
     sd t5,  240(a0)
     sd t6,  248(a0)
 
-    # ---- Step 3: 保存原 a0 和 sstatus ----
-    # TODO(student): 从 sscratch 读取原 a0 值并保存到 TrapFrame.x10_a0
-    # 提示: csrr rd, csr — 读取 CSR 到寄存器
+    # Step 3: 保存原 a0 和 sstatus
     csrr t0, sscratch
     sd t0, 80(a0)
 
-    # TODO(student): 保存 sstatus CSR 到 TrapFrame.sstatus (offset 256)
     csrr t0, sstatus
     sd t0, 256(a0)
 
-    # ---- Step 4: 切换到内核栈（仅用户态进入时） ----
-    # TODO(student): 检查 sstatus.SPP 位 (bit 8)，决定是否切换栈
-    # SPP=1: 陷阱来自 S-mode（内核态），不切换栈
-    # SPP=0: 陷阱来自 U-mode（用户态），需要切换到内核栈
-    # 提示:
-    #   1. csrr t0, sstatus — 读取 sstatus
-    #   2. li t1, 0x100     — SPP 位掩码 (1 << 8)
-    #   3. and t0, t0, t1   — 提取 SPP 位
-    #   4. bnez t0, .Lkernel_trap — SPP=1 跳过栈切换
-    #   5. ld sp, 264(a0)   — 从 TrapFrame.kernel_sp 加载内核栈
+    # Step 4: 切换到内核栈（仅用户态进入时）
+    # sstatus.SPP (bit 8): 0 = 用户态, 1 = 内核态
     csrr t0, sstatus
     li t1, 0x100
     and t0, t0, t1
     bnez t0, .Lkernel_trap
 
-    # 来自用户态：切换到内核栈
+    # 从用户态进入：切换到内核栈
     ld sp, 264(a0)
 
 .Lkernel_trap:
-    # 保存当前 sp 到 kernel_sp（无论是否切换了栈）
-    # 这确保 trap_handler 返回后栈是正确的
+    # 保存当前内核栈指针到 TrapFrame
     sd sp, 264(a0)
 
-    # ---- Step 5: 调用 trap_handler ----
-    # TODO(student): 跳转到 Rust 的 trap_handler 函数
-    # a0 已经是 TrapFrame 指针，直接作为参数传递
-    # 提示: 使用 call 宏调用 trap_handler（等价于 auipc+jal）
-    # 注意: a0 (TrapFrame 指针) 在调用后可能被破坏，
-    #       但由于 trap_entry → trap_handler → trap_return 是连续执行，
-    #       trap_handler 内部会调用 trap_return 完成恢复
+    # Step 5: 调用 trap_handler
+    # trap_handler 返回值 a0 = 当前任务的 TrapFrame 指针（可能已切换任务）
+    # 如果 a0 = 0，表示切换到了内核任务（如 idle），直接返回
     call trap_handler
 
-    # trap_handler 不应返回；若返回则停机
-    wfi
-    j .-4
+    # Step 6: 检查返回值
+    # a0 = trap_handler 返回的 TrapFrame 指针
+    # 如果 a0 == 0，表示切换到了内核任务，直接返回（不恢复 TrapFrame）
+    beqz a0, .Lreturn_to_kernel
+
+    # a0 != 0：恢复用户任务的 TrapFrame 并 sret
+    # （fall through to trap_return）
 
 # ============================================================================
-# trap_return — 陷阱恢复
+# trap_return — 陷阱恢复（供 enter_user_mode 和 forkret 调用）
 # ============================================================================
-# 从 TrapFrame 恢复全部寄存器并执行 sret。
-# 调用约定：a0 = TrapFrame 指针
-#
-# 步骤：
-# 1. 恢复 sepc、sstatus CSR
-# 2. 将 TrapFrame 指针写入 sscratch（下次陷阱用）
-# 3. 恢复全部通用寄存器
-# 4. sret 返回
+# 参数：a0 = TrapFrame 指针
+# 行为：恢复全部寄存器，执行 sret
 trap_return:
-    # ---- Step 1: 恢复 CSR ----
-    # TODO(student): 从 TrapFrame 恢复 sepc 和 sstatus
-    # 提示: ld t0, offset(a0) 然后 csrw csr, t0
+    # 恢复 CSR
     ld t0, 0(a0)
     csrw sepc, t0
-
     ld t0, 256(a0)
     csrw sstatus, t0
 
-    # ---- Step 2: 设置 sscratch ----
-    # TODO(student): 将 TrapFrame 指针写回 sscratch（供下次陷阱使用）
-    # 提示: csrw sscratch, a0
+    # 设置 sscratch（供下次从用户态陷入时使用）
     csrw sscratch, a0
 
-    # ---- Step 3: 恢复通用寄存器 ----
-    # TODO(student): 用 ld 指令从 TrapFrame 恢复所有通用寄存器
-    # 注意：a0 必须最后恢复（因为它是 TrapFrame 指针）
-    # 提示: ld rd, offset(a0) — 从 a0+offset 加载到寄存器
+    # 恢复通用寄存器（a0 最后恢复）
     ld ra,  8(a0)
     ld sp,  16(a0)
     ld gp,  24(a0)
@@ -216,7 +174,6 @@ trap_return:
     ld t2,  56(a0)
     ld s0,  64(a0)
     ld s1,  72(a0)
-    # a0 最后恢复（因为它是 TrapFrame 指针）
     ld a1,  88(a0)
     ld a2,  96(a0)
     ld a3,  104(a0)
@@ -238,11 +195,44 @@ trap_return:
     ld t4,  232(a0)
     ld t5,  240(a0)
     ld t6,  248(a0)
-
-    # 最后恢复 a0（从 TrapFrame.x10_a0 字段）
     ld a0,  80(a0)
 
-    # ---- Step 4: 陷阱返回 ----
-    # TODO(student): 执行 sret 指令返回
-    # sret 硬件自动完成：PC ← sepc, SIE ← SPIE, 特权级 ← SPP
+    # sret: PC ← sepc, SIE ← SPIE, 特权级 ← SPP
     sret
+
+# ============================================================================
+# .Lreturn_to_kernel — 返回到内核任务
+# ============================================================================
+# 当 trap_handler 返回 0 时，表示切换到了内核任务（如 idle）。
+# 此时不需要恢复 TrapFrame（内核任务通过 context_switch 恢复上下文），
+# 直接返回到调用 trap_entry 的位置（即 context_switch 后的 schedule() 函数）。
+.Lreturn_to_kernel:
+    ret
+
+# ============================================================================
+# forkret — 用户任务首次调度入口
+# ============================================================================
+# 当用户任务首次被 context_switch 调度时，context.ra 指向此处。
+# forkret 的职责：
+#   1. 从 Task 结构体读取 trap_frame_ptr
+#   2. 将其写入 sscratch CSR
+#   3. 调用 trap_return 恢复 TrapFrame 并 sret 到用户态
+#
+# 参数：a0 = 当前任务的 trap_frame_ptr（usize，由 schedule() 在调用前设置）
+#
+# ## 教学概念：为什么需要 forkret？
+#
+# 新创建的用户任务从未执行过，它的"上下文"是人为构造的：
+# - context.ra = forkret（首次调度时跳转到这里）
+# - context.sp = 内核栈顶
+#
+# 当 context_switch 切换到这个任务时，CPU 从 forkret 开始执行。
+# forkret 设置 sscratch 并调用 trap_return，完成到用户态的切换。
+# 这是任务"诞生"的时刻——从内核态切换到用户态，开始执行用户程序。
+forkret:
+    # a0 已经是 trap_frame_ptr（由 schedule() 设置）
+    # 写入 sscratch（供 trap_return 和后续 trap_entry 使用）
+    csrw sscratch, a0
+
+    # 调用 trap_return 恢复 TrapFrame 并 sret 到用户态
+    j trap_return
