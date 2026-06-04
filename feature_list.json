@@ -3,9 +3,9 @@
   "project": "suba",
   "total": 105,
   "summary": {
-    "completed": 24,
+    "completed": 25,
     "in_progress": 0,
-    "pending": 81
+    "pending": 80
   },
   "features": [
     {
@@ -1354,9 +1354,12 @@
       "name": "实现 RISC-V Context 结构体",
       "description": "在 os/src/arch/riscv64/ 中定义 RISC-V 的 Context 结构体（ra, sp, s0-s11），与 kernel 的 Context 布局一致。#[repr(C)] 确保内存布局。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, 复用 kernel Context (#[repr(C)] ra/sp/s[12]), switch extern 声明正确",
+        "pedagogy: 模块级注释含 RISC-V 特权级教学, switch 布局注释清晰, .solution/ 完整"
+      ],
       "solution": ".solution/7.4-riscv-context.rs",
       "student_todo": [
         "os/src/arch/riscv64/mod.rs:Context 结构体"
