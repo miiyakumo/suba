@@ -548,6 +548,24 @@ pub extern "C" fn rust_main() -> ! {
     driver::plic::init();
     uart_puts("[boot] PLIC initialized (UART0 → S-mode)\n");
 
+    // UART 接收中断使能
+    // 设置 IER 的 ERBFI 位（Enable Received Data Available Interrupt）
+    // 当用户在键盘上按键时，UART 硬件触发中断：
+    // UART → PLIC → CPU (scause=9) → trap_handler → plic::handle_external
+    // → uart.handle_interrupt → 数据存入 RX_BUFFER
+    //
+    // TODO(student): UART 中断输入路径验证
+    // 验证完整的 UART 中断输入链路：
+    // 1. UART IER 使能接收中断
+    // 2. PLIC 路由 UART0 IRQ 到 S-mode
+    // 3. 用户按键 → UART 中断 → PLIC → scause=9
+    // 4. trap_handler 分发到 plic::handle_external_interrupt
+    // 5. plic claim → uart.handle_interrupt → 数据存入 RX_BUFFER
+    // 6. sys_read (getchar) 从 RX_BUFFER 读取数据
+    // 7. 数据通过 copy_to_user 返回给用户程序
+    driver::uart::init_interrupt();
+    uart_puts("[boot] UART receive interrupt enabled\n");
+
     // ================================================================
     // Step 7: 启用全局中断 (sstatus.SIE=1)
     // ================================================================

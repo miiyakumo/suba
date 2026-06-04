@@ -595,6 +595,44 @@ impl suba_kernel::driver::Console for UartConsole {
 }
 
 // ============================================================================
+// UART 中断初始化
+// ============================================================================
+
+/// 初始化 UART 接收中断
+///
+/// 使能 IER 的 ERBFI (Enable Received Data Available Interrupt) 位。
+/// 初始化后，当用户按键时：
+///
+/// ```text
+/// 用户按键
+///   → UART 硬件检测到数据到达
+///   → 触发 IRQ 线 (source 10)
+///   → PLIC 通知 CPU (Supervisor external interrupt, scause=9)
+///   → trap_handler → plic::handle_external_interrupt
+///   → Uart::handle_interrupt (读取 RBR → RX_BUFFER)
+/// ```
+///
+/// ## 教学概念：UART 中断链路的初始化顺序
+///
+/// 完整的中断输入链路需要三层初始化：
+/// 1. 设备层（UART）：使能 IER, MCR — 设备能产生中断
+/// 2. 路由层（PLIC）：设置优先级、使能、阈值 — 中断能到达 CPU
+/// 3. CPU 层（sie/sstatus）：使能 SEIE, SIE — CPU 能响应中断
+///
+/// 三层必须全部正确配置，中断才能正常工作。
+///
+/// 在 rust_main 中，`plic::init()` 之后调用此函数。
+pub fn init_interrupt() {
+    // 设置 MCR OUT2 位（PC 兼容 UART 需要此位才能发出中断）
+    // SAFETY: MCR 偏移量 4 是有效的 UART 寄存器
+    unsafe {
+        CONSOLE_UART.write_reg(reg::MCR, 0x0B); // DTR=1, RTS=1, OUT2=1
+    }
+    // 使能接收数据就绪中断
+    CONSOLE_UART.enable_receive_interrupt();
+}
+
+// ============================================================================
 // 编译期验证
 // ============================================================================
 

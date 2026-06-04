@@ -3,7 +3,7 @@
   "project": "suba",
   "total": 105,
   "summary": {
-    "completed": 26,
+    "completed": 27,
     "in_progress": 0,
     "pending": 80
   },
@@ -2129,9 +2129,12 @@
       "name": "UART 中断驱动输入",
       "description": "验证 UART 中断驱动的输入：用户 sys_read → 等待输入 → 用户按键 → UART 中断 → PLIC → trap_handler → 唤醒任务 → 返回字符。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "approved",
+      "review_log": [
+        "R1(correctness): cargo build zero warnings, kernel tests 91/91 pass, UART IER ERBFI + MCR OUT2 enabled, PLIC UART0 IRQ routing, trap_handler external interrupt dispatch, UartFile VFS path to RX_BUFFER",
+        "R2(pedagogy): module docs explain 3-layer interrupt enable, student_todo at PLIC handler dispatch point, .solution/ reference complete with full async-path diagram"
+      ],
       "solution": ".solution/11.9-uart-interrupt-input.rs",
       "student_todo": [
         "UART 中断输入路径验证"
