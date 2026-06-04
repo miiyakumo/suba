@@ -560,6 +560,15 @@ pub struct UartConsole;
 /// 全局 UART 实例
 static CONSOLE_UART: Uart = Uart::new(UART0_BASE);
 
+impl UartConsole {
+    /// 处理 UART 中断（由 PLIC 调用）
+    ///
+    /// 从 UART 硬件读取所有可用数据到接收缓冲区。
+    pub fn handle_interrupt() {
+        CONSOLE_UART.handle_interrupt();
+    }
+}
+
 impl suba_kernel::driver::Console for UartConsole {
     /// 输出一个字节（轮询模式）
     fn putchar(c: u8) {

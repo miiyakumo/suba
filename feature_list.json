@@ -1765,7 +1765,7 @@
       "name": "PLIC 初始化和中断路由",
       "description": "在 os/src/driver/plic.rs 中实现 PLIC（Platform-Level Interrupt Controller）驱动。配置中断优先级和阈值，启用 UART 中断。QEMU virt 的 PLIC 基地址为 0x0c000000。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.7-plic-init.rs",

@@ -18,6 +18,7 @@
 //! 因此必须使用 `volatile` 访问，防止编译器优化掉"看似无用"的读写。
 
 pub mod clint;
+pub mod plic;
 pub mod uart;
 
 /// UART Console 类型别名

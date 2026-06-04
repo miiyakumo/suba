@@ -96,8 +96,8 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
     if scause & INTERRUPT_BIT != 0 {
         // ---- 中断处理 ----
         // TODO(student): 根据中断编号分发
-        // - 5: 时钟中断 → 调用 set_next_timer()
-        // - 9: 外部中断 → 暂时打印信息（后续 feature 实现 PLIC）
+        // - 5: 时钟中断 → 调用 clint::handle_timer_interrupt()
+        // - 9: 外部中断 → 调用 plic::handle_external_interrupt()
         // - 其他: panic
         match scause & !INTERRUPT_BIT {
             5 => {
@@ -106,7 +106,7 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
             }
             9 => {
                 // Supervisor external interrupt（外部设备中断）
-                // TODO: PLIC 中断处理（后续 feature）
+                crate::driver::plic::handle_external_interrupt();
             }
             _ => {
                 panic!("[suba] unexpected interrupt: scause={:#x}", scause);
