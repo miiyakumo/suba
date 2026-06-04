@@ -19,10 +19,12 @@ use crate::driver::uart::{Uart, UART0_BASE};
 ///
 /// 写入时直接输出到 UART MMIO，读取时从 UART 接收缓冲区读取。
 /// 用于 fd=0 (stdin), fd=1 (stdout), fd=2 (stderr)。
+#[allow(dead_code)]
 pub struct UartFile {
     uart: Uart,
 }
 
+#[allow(dead_code)]
 impl UartFile {
     /// 创建 UART 文件实例
     pub const fn new() -> Self {
