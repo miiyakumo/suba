@@ -1477,9 +1477,12 @@
       "name": "实现 S/U Mode 切换",
       "description": "实现从 S Mode 切换到 U Mode 的逻辑：设置 sstatus.SPP = User，设置 sepc 为用户入口，执行 sret。理解特权级切换机制。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, drop_to_user_mode 实现正确 (SPP=0, SPIE=1, sepc=user_entry, trap_return), setup_user_trap_frame 提供灵活配置",
+        "pedagogy: sret 特权级切换教学注释完整, SPP/SPIE/SIE 位解释清晰, 切换流程图示, SAFETY 文档完整"
+      ],
       "solution": ".solution/7.11-mode-switch.rs",
       "student_todo": [
         "os/src/arch/riscv64/mod.rs:特权级切换"
