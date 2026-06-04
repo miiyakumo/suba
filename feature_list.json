@@ -1304,7 +1304,9 @@
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
       "review_status": "approved",
-      "review_log": [],
+      "review_log": [
+        "Push failed: could not read Username for GitHub (2026-06-04)"
+      ],
       "solution": ".solution/7.1-entry.S",
       "student_todo": [
         "os/src/entry.S:栈设置和 BSS 清零"
@@ -1317,8 +1319,8 @@
       "name": "链接脚本 link.ld",
       "description": "在 os/src/linker.ld 中定义内存布局：BASE_ADDRESS(0x80200000)、text/rodata/data/bss 段、栈空间。理解链接脚本如何控制内存布局。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/7.2-linker.ld",
       "student_todo": [
