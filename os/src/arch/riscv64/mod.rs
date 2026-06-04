@@ -62,17 +62,32 @@ unsafe extern "C" {
 ///
 /// 这与 x86 的"中断向量表"不同——x86 硬件直接跳转到不同处理函数。
 ///
-/// scause 寄存器编码陷阱原因：
-/// - 最高位 (bit 63) = 1: 中断（异步事件，由硬件触发）
-/// - 最高位 = 0: 异常（同步事件，由当前指令触发）
-/// - 低位 = 具体原因编号
+/// ## scause 编码格式
 ///
-/// 常见 scause 值：
-/// | scause       | 类型 | 含义                     |
-/// |--------------|------|--------------------------|
-/// | 8            | 异常 | 用户态 ecall（系统调用）  |
-/// | (1<<63) \| 5 | 中断 | 时钟中断 (timer)         |
-/// | (1<<63) \| 9 | 中断 | 外部中断 (PLIC)          |
+/// ```text
+/// bit 63: 1=中断(异步), 0=异常(同步)
+/// bit 62:0: 具体原因编号
+/// ```
+///
+/// ## 完整的陷阱分发表
+///
+/// | scause          | 类型 | 含义                    | 处理函数                    |
+/// |-----------------|------|-------------------------|-----------------------------|
+/// | 0               | 异常 | 指令地址未对齐          | panic                       |
+/// | 1               | 异常 | 指令访问错误            | panic                       |
+/// | 2               | 异常 | 非法指令                | panic                       |
+/// | 3               | 异常 | 断点 (ebreak)           | panic                       |
+/// | 5               | 异常 | 加载地址未对齐          | panic                       |
+/// | 6               | 异常 | 加载访问错误            | panic                       |
+/// | 7               | 异常 | 存储地址未对齐          | panic                       |
+/// | 8               | 异常 | U-mode ecall            | sepc+=4, dispatch_syscall   |
+/// | 9               | 异常 | S-mode ecall            | sepc+=4, (不应发生)         |
+/// | 12              | 异常 | 指令页错误              | panic                       |
+/// | 13              | 异常 | 加载页错误              | panic                       |
+/// | 15              | 异常 | 存储页错误              | panic                       |
+/// | (1<<63)\|1      | 中断 | 软件中断 (SSI)          | (当前忽略)                  |
+/// | (1<<63)\|5      | 中断 | 时钟中断 (STI)          | clint::handle_timer         |
+/// | (1<<63)\|9      | 中断 | 外部中断 (SEI)          | plic::handle_external       |
 ///
 /// # Safety
 /// 必须从 trap.S 中以正确的 TrapFrame 指针调用。
@@ -81,31 +96,34 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
     // SAFETY: trap_frame 由 trap.S 传入，指向有效的 TrapFrame
     let tf = unsafe { &mut *trap_frame };
 
-    // TODO(student): 读取 scause 寄存器，判断陷阱类型
-    // 提示: 调用 read_scause() 函数
+    // 读取 scause 寄存器，判断陷阱类型
     // scause 最高位区分中断 (1) vs 异常 (0)
     let scause = read_scause();
 
-    // TODO(student): 根据 scause 的最高位，分发到中断处理或异常处理
-    // 提示:
-    //   - 最高位 (bit 63) 是中断标志位：scause & (1 << 63) != 0 → 中断
-    //   - 中断编号 = scause & !(1 << 63)（去掉最高位）
-    //   - 异常编号 = scause 本身（最高位已经是 0）
+    // 最高位 (bit 63) 是中断标志位
     const INTERRUPT_BIT: usize = 1 << (usize::BITS - 1);
 
     if scause & INTERRUPT_BIT != 0 {
-        // ---- 中断处理 ----
-        // TODO(student): 根据中断编号分发
-        // - 5: 时钟中断 → 调用 clint::handle_timer_interrupt()
-        // - 9: 外部中断 → 调用 plic::handle_external_interrupt()
-        // - 其他: panic
+        // ============================================================
+        // 中断处理 (Interrupt) — 异步事件，由硬件触发
+        // ============================================================
+        // 中断编号 = scause & !INTERRUPT_BIT（去掉最高位）
         match scause & !INTERRUPT_BIT {
+            1 => {
+                // Supervisor software interrupt (SSI)
+                // 由其他 hart 通过写入 CLINT msip 寄存器触发
+                // 当前单核实现忽略此中断
+            }
             5 => {
-                // Supervisor timer interrupt（时钟中断）
+                // Supervisor timer interrupt (STI)
+                // 由 CLINT 触发：mtime >= mtimecmp
+                // 处理：递增 tick 计数、设置下一次中断
                 crate::driver::clint::handle_timer_interrupt();
             }
             9 => {
-                // Supervisor external interrupt（外部设备中断）
+                // Supervisor external interrupt (SEI)
+                // 由 PLIC 触发：外部设备（UART0 等）发出中断
+                // 处理：claim → 分发到设备驱动 → complete
                 crate::driver::plic::handle_external_interrupt();
             }
             _ => {
@@ -113,20 +131,86 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
             }
         }
     } else {
-        // ---- 异常处理 ----
-        // TODO(student): 根据异常编号分发
-        // - 8: ecall from U-mode → 系统调用
-        //   重要: 需要将 sepc + 4 跳过 ecall 指令，否则 sret 后会重新执行 ecall！
-        // - 其他: panic（打印 scause, stval, sepc 信息）
+        // ============================================================
+        // 异常处理 (Exception) — 同步事件，由当前指令触发
+        // ============================================================
         match scause {
+            0 => {
+                // 指令地址未对齐 (Instruction address misaligned)
+                let stval = read_stval();
+                panic!(
+                    "[suba] instruction misaligned: sepc={:#x}, stval={:#x}",
+                    tf.sepc, stval
+                );
+            }
+            2 => {
+                // 非法指令 (Illegal instruction)
+                let stval = read_stval();
+                panic!(
+                    "[suba] illegal instruction: sepc={:#x}, stval={:#x}",
+                    tf.sepc, stval
+                );
+            }
+            5 => {
+                // 加载地址未对齐 (Load address misaligned)
+                let stval = read_stval();
+                panic!(
+                    "[suba] load misaligned: sepc={:#x}, stval={:#x}",
+                    tf.sepc, stval
+                );
+            }
+            7 => {
+                // 存储地址未对齐 (Store/AMO address misaligned)
+                let stval = read_stval();
+                panic!(
+                    "[suba] store misaligned: sepc={:#x}, stval={:#x}",
+                    tf.sepc, stval
+                );
+            }
             8 => {
                 // Environment call from U-mode（用户态系统调用）
-                // sepc 指向 ecall 指令，需要前进 4 字节到下一条指令
+                //
+                // ## 教学概念：ecall 指令
+                //
+                // 用户程序通过 ecall 指令请求内核服务。
+                // ecall 会触发异常，CPU 跳转到 stvec（trap_entry）。
+                // sepc 指向 ecall 指令本身，需要 +4 跳到下一条指令。
+                //
+                // 系统调用号在 a7 寄存器，参数在 a0-a5 寄存器。
+                // 返回值写入 a0 寄存器。
                 tf.sepc = tf.sepc.wrapping_add(4);
-                // TODO: 调用系统调用分发（后续 feature）
+                // TODO(student): 调用系统调用分发（后续 feature）
                 // dispatch_syscall(tf);
             }
+            12 => {
+                // 指令页错误 (Instruction page fault)
+                // 通常意味着：执行了未映射或无执行权限的地址
+                let stval = read_stval();
+                panic!(
+                    "[suba] instruction page fault: sepc={:#x}, stval={:#x}",
+                    tf.sepc, stval
+                );
+            }
+            13 => {
+                // 加载页错误 (Load page fault)
+                // 通常意味着：读取了未映射或无读权限的地址
+                let stval = read_stval();
+                panic!(
+                    "[suba] load page fault: sepc={:#x}, stval={:#x}",
+                    tf.sepc, stval
+                );
+            }
+            15 => {
+                // 存储页错误 (Store/AMO page fault)
+                // 通常意味着：写入了未映射或无写权限的地址
+                let stval = read_stval();
+                panic!(
+                    "[suba] store page fault: sepc={:#x}, stval={:#x}",
+                    tf.sepc, stval
+                );
+            }
             _ => {
+                // 未知异常
                 let stval = read_stval();
                 panic!(
                     "[suba] unexpected exception: scause={:#x}, stval={:#x}, sepc={:#x}",
@@ -136,9 +220,9 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
         }
     }
 
-    // TODO(student): 处理完毕后，调用 trap_return 恢复寄存器并返回
-    // trap_return 在 trap.S 中实现，会从 TrapFrame 恢复所有寄存器并执行 sret
-    // 提示: trap_return(trap_frame)
+    // 处理完毕后，调用 trap_return 恢复寄存器并执行 sret
+    // trap_return 在 trap.S 中实现：从 TrapFrame 恢复所有寄存器，执行 sret
+    // SAFETY: trap_frame 指向有效的 TrapFrame，由 trap.S 保证
     unsafe {
         trap_return(trap_frame);
     }

@@ -2,31 +2,23 @@
 //
 // 本文件展示完整的陷阱分发逻辑。
 // 完整代码位于 os/src/arch/riscv64/mod.rs。
+//
+// ## 完整的陷阱分发表
+//
+// | scause          | 类型 | 含义                    | 处理函数                    |
+// |-----------------|------|-------------------------|-----------------------------|
+// | 0               | 异常 | 指令地址未对齐          | panic                       |
+// | 2               | 异常 | 非法指令                | panic                       |
+// | 5               | 异常 | 加载地址未对齐          | panic                       |
+// | 7               | 异常 | 存储地址未对齐          | panic                       |
+// | 8               | 异常 | U-mode ecall            | sepc+=4, dispatch_syscall   |
+// | 12              | 异常 | 指令页错误              | panic                       |
+// | 13              | 异常 | 加载页错误              | panic                       |
+// | 15              | 异常 | 存储页错误              | panic                       |
+// | (1<<63)\|1      | 中断 | 软件中断 (SSI)          | (当前忽略)                  |
+// | (1<<63)\|5      | 中断 | 时钟中断 (STI)          | clint::handle_timer         |
+// | (1<<63)\|9      | 中断 | 外部中断 (SEI)          | plic::handle_external       |
 
-// ============================================================================
-// trap_handler — 陷阱分发函数
-// ============================================================================
-
-/// trap_handler — 由 trap.S 调用的陷阱分发函数
-///
-/// ## 教学概念：RISC-V 陷阱分发 (Trap Dispatch)
-///
-/// RISC-V 的陷阱处理是"统一入口，分别处理"：
-/// 1. 所有陷阱共享同一个入口地址（stvec → trap_entry）
-/// 2. 软件读取 scause 判断陷阱类型
-/// 3. 根据类型跳转到不同的处理函数
-///
-/// scause 寄存器编码陷阱原因：
-/// - 最高位 (bit 63) = 1: 中断（异步事件，由硬件触发）
-/// - 最高位 = 0: 异常（同步事件，由当前指令触发）
-/// - 低位 = 具体原因编号
-///
-/// 常见 scause 值：
-/// | scause       | 类型 | 含义                     |
-/// |--------------|------|--------------------------|
-/// | 8            | 异常 | 用户态 ecall（系统调用）  |
-/// | (1<<63) \| 5 | 中断 | 时钟中断 (timer)         |
-/// | (1<<63) \| 9 | 中断 | 外部中断 (PLIC)          |
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
     // SAFETY: trap_frame 由 trap.S 传入，指向有效的 TrapFrame
@@ -38,14 +30,15 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
     if scause & INTERRUPT_BIT != 0 {
         // ---- 中断处理 ----
         match scause & !INTERRUPT_BIT {
+            1 => {
+                // Supervisor software interrupt (SSI) — 当前忽略
+            }
             5 => {
-                // Supervisor timer interrupt（时钟中断）
-                // CLINT 处理：重置 timer + 触发调度
+                // Supervisor timer interrupt (STI)
                 crate::driver::clint::handle_timer_interrupt();
             }
             9 => {
-                // Supervisor external interrupt（外部设备中断）
-                // PLIC 处理：读取中断源 + 分发到设备驱动
+                // Supervisor external interrupt (SEI)
                 crate::driver::plic::handle_external_interrupt();
             }
             _ => {
@@ -55,12 +48,38 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
     } else {
         // ---- 异常处理 ----
         match scause {
+            0 => {
+                let stval = read_stval();
+                panic!("[suba] instruction misaligned: sepc={:#x}, stval={:#x}", tf.sepc, stval);
+            }
+            2 => {
+                let stval = read_stval();
+                panic!("[suba] illegal instruction: sepc={:#x}, stval={:#x}", tf.sepc, stval);
+            }
+            5 => {
+                let stval = read_stval();
+                panic!("[suba] load misaligned: sepc={:#x}, stval={:#x}", tf.sepc, stval);
+            }
+            7 => {
+                let stval = read_stval();
+                panic!("[suba] store misaligned: sepc={:#x}, stval={:#x}", tf.sepc, stval);
+            }
             8 => {
                 // Environment call from U-mode（用户态系统调用）
-                // sepc 指向 ecall 指令，需要前进 4 字节到下一条指令
                 tf.sepc = tf.sepc.wrapping_add(4);
-                // 系统调用分发（后续 feature 完成）
-                // dispatch_syscall(tf);
+                // dispatch_syscall(tf);  // 后续 feature
+            }
+            12 => {
+                let stval = read_stval();
+                panic!("[suba] instruction page fault: sepc={:#x}, stval={:#x}", tf.sepc, stval);
+            }
+            13 => {
+                let stval = read_stval();
+                panic!("[suba] load page fault: sepc={:#x}, stval={:#x}", tf.sepc, stval);
+            }
+            15 => {
+                let stval = read_stval();
+                panic!("[suba] store page fault: sepc={:#x}, stval={:#x}", tf.sepc, stval);
             }
             _ => {
                 let stval = read_stval();
@@ -72,8 +91,8 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
         }
     }
 
-    // 处理完毕，调用 trap_return 恢复寄存器并返回
-    // trap_return 在 trap.S 中实现：恢复全部寄存器，执行 sret
+    // trap_return: 恢复寄存器，执行 sret
+    // SAFETY: trap_frame 指向有效的 TrapFrame
     unsafe {
         trap_return(trap_frame);
     }

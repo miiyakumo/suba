@@ -1981,7 +1981,7 @@
       "name": "实现 RISC-V 中断分发完善",
       "description": "完善 trap_handler 中的中断分发：ecall → syscall dispatch、timer → CLINT 处理 + 调度、external → PLIC 处理。确保所有中断路径正确覆盖。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/10.11-trap-dispatch.rs",
