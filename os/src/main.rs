@@ -313,26 +313,40 @@ pub extern "C" fn rust_main() -> ! {
     // ================================================================
     // Step 9: 加载 init 程序到用户地址空间
     // ================================================================
-    // TODO(student): 加载 init ELF 程序
-    //
-    // 完整流程：
-    //   1. 从 initrd 或嵌入式二进制获取 ELF 数据
-    //   2. 调用 load_elf_to_space(elf_data) 解析 ELF 并加载到用户页表
-    //   3. 切换到用户页表：user_space.activate()
-    //   4. 设置 TrapFrame 并切换到用户态：
-    //      enter_user_mode(entry, stack_top, kernel_sp, 0)
-    //
-    // ## 教学概念：init 程序的角色
-    //
-    // Unix 系统中，PID=1 的 init 进程是所有用户进程的祖先：
-    // - 它是内核启动后运行的第一个用户程序
-    // - 负责启动 shell、守护进程等
-    // - 回收孤儿进程（当父进程退出时，子进程重新挂到 init 下）
-    //
-    // 在 suba 中，init 程序可以是一个简单的 shell 或测试程序。
-    // 当前阶段：init 程序尚未嵌入，内核以 idle 循环运行。
-    // 后续 feature 会完成 ELF 加载和用户态切换。
-    uart_puts("[boot] init: skipped (no embedded ELF yet)\n");
+    // 嵌入 init 用户程序的 ELF 二进制数据
+    // 这是一个最小的 RISC-V 程序：li a7,93; ecall (exit)
+    let init_elf = include_bytes!("user_init.bin");
+    uart_puts("[boot] loading init program...\n");
+
+    // 使用 ELF 加载器将程序加载到用户地址空间
+    match arch::riscv64::load_elf_to_space(init_elf) {
+        Ok((user_space, entry, stack_top)) => {
+            uart_puts("[boot] init loaded: entry=");
+            arch::riscv64::page::print_hex(entry);
+            uart_puts(", stack=");
+            arch::riscv64::page::print_hex(stack_top);
+            uart_puts("\n");
+
+            // 激活用户页表
+            // SAFETY: user_space 包含有效的页表映射
+            unsafe { user_space.activate(); }
+            uart_puts("[boot] user page table activated\n");
+
+            // 获取内核栈顶（供 trap_return 使用）
+            unsafe extern "C" { fn boot_stack_top(); }
+            let _kernel_sp = boot_stack_top as usize;
+
+            // 切换到用户态
+            // 设置 TrapFrame：sepc=entry, sp=stack_top, a0=argc(0)
+            // SAFETY: entry 和 stack_top 由 ELF 加载器验证
+            // uart_puts("[boot] entering user mode...\n");
+            // arch::riscv64::enter_user_mode(entry, stack_top, kernel_sp, 0);
+            uart_puts("[boot] user mode entry: deferred (need full trap support)\n");
+        }
+        Err(_) => {
+            uart_puts("[boot] WARN: init ELF load failed, running in kernel mode\n");
+        }
+    }
 
     // ================================================================
     // Step 10: 启动调度器，进入 idle 循环

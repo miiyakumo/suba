@@ -2024,7 +2024,7 @@
       "name": "加载用户 ELF 程序",
       "description": "将用户程序的 ELF 数据嵌入内核，通过 ElfLoader 加载到用户地址空间。验证 ELF 解析、段加载、地址映射的正确性。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/11.3-load-user-program.rs",
