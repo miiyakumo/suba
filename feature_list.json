@@ -1827,7 +1827,9 @@
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
       "review_status": "approved",
-      "review_log": [],
+      "review_log": [
+        "push failed (network): 2026-06-04"
+      ],
       "solution": ".solution/10.1-elf-header.rs",
       "student_todo": [
         "kernel/src/loader/mod.rs:check_elf_magic, ELF 解析"
@@ -1840,8 +1842,8 @@
       "name": "实现程序头解析",
       "description": "遍历 ELF 程序头表，找到所有 PT_LOAD 类型的段。提取每个段的文件偏移、虚拟地址、文件大小、内存大小和权限标志。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/10.2-program-headers.rs",
       "student_todo": [

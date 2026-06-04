@@ -210,7 +210,26 @@ impl ElfHeader64 {
 }
 
 /// ELF 64 位程序头
-#[derive(Debug, Clone, Copy)]
+///
+/// ## 教学概念
+///
+/// 程序头（Program Header）描述了一个"段"（Segment），
+/// 告诉加载器如何将 ELF 文件的某部分映射到内存：
+///
+/// ```text
+/// p_offset ──→ 文件中的起始位置
+/// p_vaddr  ──→ 内存中的目标虚拟地址
+/// p_filesz ──→ 从文件复制多少字节
+/// p_memsz  ──→ 内存中该段总共占多少字节（>= p_filesz 的部分清零，即 BSS）
+/// p_flags  ──→ 权限：可读(R)、可写(W)、可执行(X)
+/// ```
+///
+/// 典型的段布局：
+/// - `.text` 段：R+X（代码，只读+可执行）
+/// - `.rodata` 段：R（只读数据）
+/// - `.data` 段：R+W（已初始化全局变量）
+/// - `.bss` 段：R+W（未初始化全局变量，filesz=0, memsz>0）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct ProgramHeader64 {
     /// 段类型
@@ -231,10 +250,84 @@ pub struct ProgramHeader64 {
     pub p_align: u64,
 }
 
+impl ProgramHeader64 {
+    /// 从原始字节解析一个程序头条目
+    ///
+    /// 数据必须至少 56 字节（ELF64 程序头的大小）。
+    ///
+    /// # Safety 说明
+    ///
+    /// 使用 `core::ptr::read_unaligned` 读取，因为字节切片不一定对齐。
+    pub fn from_bytes(data: &[u8]) -> Result<Self, ElfError> {
+        if data.len() < core::mem::size_of::<ProgramHeader64>() {
+            return Err(ElfError::TooShort);
+        }
+        // SAFETY: 长度已检查 >= 56，ProgramHeader64 是 #[repr(C)] POD 类型
+        let phdr = unsafe {
+            core::ptr::read_unaligned(data.as_ptr() as *const ProgramHeader64)
+        };
+        Ok(phdr)
+    }
+
+    /// 此段是否为 PT_LOAD（需要加载到内存的段）
+    pub fn is_load(&self) -> bool {
+        self.p_type == segment_type::PT_LOAD
+    }
+
+    /// 段在文件中的偏移
+    pub fn offset(&self) -> usize {
+        self.p_offset as usize
+    }
+
+    /// 段在内存中的虚拟地址
+    pub fn vaddr(&self) -> usize {
+        self.p_vaddr as usize
+    }
+
+    /// 从文件中复制的字节数
+    pub fn file_size(&self) -> usize {
+        self.p_filesz as usize
+    }
+
+    /// 段在内存中的总大小（>= file_size 的部分由加载器清零）
+    pub fn mem_size(&self) -> usize {
+        self.p_memsz as usize
+    }
+
+    /// 段是否可读
+    pub fn is_readable(&self) -> bool {
+        self.p_flags & segment_flags::PF_R != 0
+    }
+
+    /// 段是否可写
+    pub fn is_writable(&self) -> bool {
+        self.p_flags & segment_flags::PF_W != 0
+    }
+
+    /// 段是否可执行
+    pub fn is_executable(&self) -> bool {
+        self.p_flags & segment_flags::PF_X != 0
+    }
+}
+
 /// 程序头类型
 pub mod segment_type {
-    /// 可加载段
+    /// 可加载段（必须加载到内存才能执行）
     pub const PT_LOAD: u32 = 1;
+    /// 动态链接信息
+    pub const PT_DYNAMIC: u32 = 2;
+    /// 解释器路径（动态链接器）
+    pub const PT_INTERP: u32 = 3;
+}
+
+/// 段权限标志（p_flags）
+pub mod segment_flags {
+    /// 可执行
+    pub const PF_X: u32 = 1;
+    /// 可写
+    pub const PF_W: u32 = 2;
+    /// 可读
+    pub const PF_R: u32 = 4;
 }
 
 /// ELF 加载器 trait。
@@ -277,6 +370,54 @@ pub fn parse_elf_header(data: &[u8]) -> Result<(u64, u64, u16, u16), ElfError> {
     let header = ElfHeader64::from_bytes(data)?;
     header.validate()?;
     Ok((header.e_entry, header.e_phoff, header.e_phentsize, header.e_phnum))
+}
+
+/// 从 ELF 数据中解析所有程序头
+///
+/// 遍历程序头表，解析每个条目并收集到 `Vec` 中。
+/// 调用前应先调用 [`parse_elf_header`] 获取 `phoff`/`phentsize`/`phnum`。
+///
+/// # 教学概念
+///
+/// 程序头表（Program Header Table）是 ELF 文件中"段"的目录。
+/// 加载器遍历这个表，找到所有 `PT_LOAD` 类型的段，
+/// 然后将它们从文件复制到内存中正确的虚拟地址。
+///
+/// # 参数
+/// - `data`：ELF 文件的原始字节
+/// - `phoff`：程序头表在文件中的偏移（来自 ELF 头）
+/// - `phentsize`：每个条目的大小（字节）
+/// - `phnum`：条目数量
+pub fn parse_program_headers(
+    data: &[u8],
+    phoff: u64,
+    phentsize: u16,
+    phnum: u16,
+) -> Result<alloc::vec::Vec<ProgramHeader64>, ElfError> {
+    let phoff = phoff as usize;
+    let entsize = phentsize as usize;
+    let count = phnum as usize;
+
+    // 验证条目大小（ELF64 程序头固定 56 字节）
+    if entsize < core::mem::size_of::<ProgramHeader64>() {
+        return Err(ElfError::PhdrOutOfBounds);
+    }
+
+    // 验证整个程序头表在数据范围内
+    let table_end = phoff
+        .checked_add(entsize.checked_mul(count).ok_or(ElfError::PhdrOutOfBounds)?)
+        .ok_or(ElfError::PhdrOutOfBounds)?;
+    if table_end > data.len() {
+        return Err(ElfError::PhdrOutOfBounds);
+    }
+
+    let mut phdrs = alloc::vec::Vec::with_capacity(count);
+    for i in 0..count {
+        let offset = phoff + i * entsize;
+        let phdr = ProgramHeader64::from_bytes(&data[offset..offset + entsize])?;
+        phdrs.push(phdr);
+    }
+    Ok(phdrs)
 }
 
 #[cfg(test)]
@@ -522,5 +663,113 @@ mod tests {
         data[16..18].copy_from_slice(&ET_DYN.to_le_bytes());
         let result = parse_elf_header(&data);
         assert!(result.is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // 程序头解析测试
+    // -----------------------------------------------------------------------
+
+    /// 构建一个包含 ELF 头 + 2 个程序头的 mini ELF 文件
+    ///
+    /// 布局：[64 字节 ELF 头][56 字节 phdr 0 (text)][56 字节 phdr 1 (data)]
+    fn make_elf_with_phdrs() -> alloc::vec::Vec<u8> {
+        let mut data = alloc::vec![0u8; 64 + 56 * 2];
+
+        // ELF 头
+        data[0..4].copy_from_slice(&ELF_MAGIC);
+        data[4] = ELFCLASS64;
+        data[5] = ELFDATA2LSB;
+        data[6] = 1;
+        data[16..18].copy_from_slice(&ET_EXEC.to_le_bytes());
+        data[18..20].copy_from_slice(&EM_RISCV.to_le_bytes());
+        data[20..24].copy_from_slice(&1u32.to_le_bytes());
+        data[24..32].copy_from_slice(&0x8020_0000u64.to_le_bytes()); // entry
+        data[32..40].copy_from_slice(&64u64.to_le_bytes());           // phoff
+        data[52..54].copy_from_slice(&64u16.to_le_bytes());           // e_ehsize
+        data[54..56].copy_from_slice(&56u16.to_le_bytes());           // phentsize
+        data[56..58].copy_from_slice(&2u16.to_le_bytes());            // phnum
+
+        // phdr 0: .text 段 (PT_LOAD, R+X)
+        let p0 = 64;
+        data[p0..p0+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        data[p0+4..p0+8].copy_from_slice(&(segment_flags::PF_R | segment_flags::PF_X).to_le_bytes());
+        data[p0+8..p0+16].copy_from_slice(&0u64.to_le_bytes());           // p_offset
+        data[p0+16..p0+24].copy_from_slice(&0x8020_0000u64.to_le_bytes()); // p_vaddr
+        data[p0+32..p0+40].copy_from_slice(&0x1000u64.to_le_bytes());      // p_filesz
+        data[p0+40..p0+48].copy_from_slice(&0x1000u64.to_le_bytes());      // p_memsz
+
+        // phdr 1: .data 段 (PT_LOAD, R+W)
+        let p1 = 64 + 56;
+        data[p1..p1+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        data[p1+4..p1+8].copy_from_slice(&(segment_flags::PF_R | segment_flags::PF_W).to_le_bytes());
+        data[p1+8..p1+16].copy_from_slice(&0x2000u64.to_le_bytes());       // p_offset
+        data[p1+16..p1+24].copy_from_slice(&0x8020_2000u64.to_le_bytes());  // p_vaddr
+        data[p1+32..p1+40].copy_from_slice(&0x100u64.to_le_bytes());        // p_filesz
+        data[p1+40..p1+48].copy_from_slice(&0x200u64.to_le_bytes());        // p_memsz
+
+        data
+    }
+
+    #[test]
+    fn parse_program_headers_valid() {
+        let data = make_elf_with_phdrs();
+        let phdrs = parse_program_headers(&data, 64, 56, 2).unwrap();
+        assert_eq!(phdrs.len(), 2);
+
+        // .text 段
+        assert_eq!(phdrs[0].p_type, segment_type::PT_LOAD);
+        assert_eq!(phdrs[0].p_vaddr, 0x8020_0000);
+        assert_eq!(phdrs[0].p_filesz, 0x1000);
+        assert_eq!(phdrs[0].p_memsz, 0x1000);
+        assert!(phdrs[0].is_executable());
+        assert!(!phdrs[0].is_writable());
+
+        // .data 段
+        assert_eq!(phdrs[1].p_type, segment_type::PT_LOAD);
+        assert_eq!(phdrs[1].p_vaddr, 0x8020_2000);
+        assert_eq!(phdrs[1].p_filesz, 0x100);
+        assert_eq!(phdrs[1].p_memsz, 0x200);
+        assert!(phdrs[1].is_writable());
+        assert!(!phdrs[1].is_executable());
+    }
+
+    #[test]
+    fn parse_program_headers_out_of_bounds() {
+        let data = make_elf_with_phdrs();
+        // phoff 超出数据范围
+        assert_eq!(parse_program_headers(&data, 9999, 56, 1), Err(ElfError::PhdrOutOfBounds));
+    }
+
+    #[test]
+    fn parse_program_headers_bad_entsize() {
+        let data = make_elf_with_phdrs();
+        // entsize 小于 56
+        assert_eq!(parse_program_headers(&data, 64, 32, 1), Err(ElfError::PhdrOutOfBounds));
+    }
+
+    #[test]
+    fn program_header_from_bytes() {
+        let mut buf = [0u8; 56];
+        // PT_LOAD, flags=R+X, offset=0, vaddr=0x10000, filesz=0x100, memsz=0x200
+        buf[0..4].copy_from_slice(&1u32.to_le_bytes());     // PT_LOAD
+        buf[4..8].copy_from_slice(&5u32.to_le_bytes());     // PF_R | PF_X
+        buf[8..16].copy_from_slice(&0u64.to_le_bytes());     // p_offset
+        buf[16..24].copy_from_slice(&0x10000u64.to_le_bytes()); // p_vaddr
+        buf[32..40].copy_from_slice(&0x100u64.to_le_bytes());   // p_filesz
+        buf[40..48].copy_from_slice(&0x200u64.to_le_bytes());   // p_memsz
+
+        let phdr = ProgramHeader64::from_bytes(&buf).unwrap();
+        assert!(phdr.is_load());
+        assert!(phdr.is_readable());
+        assert!(phdr.is_executable());
+        assert!(!phdr.is_writable());
+        assert_eq!(phdr.vaddr(), 0x10000);
+        assert_eq!(phdr.file_size(), 0x100);
+        assert_eq!(phdr.mem_size(), 0x200);
+    }
+
+    #[test]
+    fn program_header_from_bytes_too_short() {
+        assert!(ProgramHeader64::from_bytes(&[0u8; 20]).is_err());
     }
 }
