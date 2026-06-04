@@ -1597,9 +1597,12 @@
       "name": "实现 satp 切换和 sfence.vma",
       "description": "实现 switch_page_table：写入 satp 寄存器（MODE=Sv39, PPN），执行 sfence.vma 刷新 TLB。理解页表切换和 TLB 的关系。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, switch_page_table 实现正确 (MODE=8 SV39, sfence.vma)",
+        "pedagogy: satp 格式说明, TLB 刷新机制教学, .solution 参考实现"
+      ],
       "solution": ".solution/8.6-satp-switch.rs",
       "student_todo": [
         "os/src/arch/riscv64/mod.rs:switch_page_table"
