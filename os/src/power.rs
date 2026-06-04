@@ -12,7 +12,6 @@
 /// - `system_reset(Shutdown, NoReason)` — 正常关机
 /// - `system_reset(Shutdown, SystemFailure)` — 故障关机
 /// - `system_reset(Reboot, NoReason)` — 重启
-
 use suba_kernel::driver::Power;
 
 /// RISC-V 电源管理实现

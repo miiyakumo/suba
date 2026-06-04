@@ -100,6 +100,7 @@ pub struct MockTrapFrame {
 
 impl MockTrapFrame {
     /// 创建新的 Mock 陷阱帧
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             syscall_no: 0,

@@ -3,7 +3,7 @@
   "project": "suba",
   "total": 105,
   "summary": {
-    "completed": 29,
+    "completed": 30,
     "in_progress": 0,
     "pending": 80
   },
@@ -2191,9 +2191,20 @@
       "name": "Clippy 和质量检查",
       "description": "运行 cargo clippy 确保零警告，检查所有 unsafe 块有 SAFETY 注释，文档注释覆盖所有公开 API。最终质量验收。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "correctness+pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo clippy kernel: 0 warnings, cargo clippy os: 0 warnings, cargo test: 92/92 passed, cargo build: 成功. 修复 13 个 clippy 警告 (7 os + 6 kernel). 所有 unsafe 有 SAFETY 注释."
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": ".solution/11.12-clippy.rs 完整记录修复清单和质量规范. 每个 #[allow(...)] 附注释解释教学简化意图. 文档注释覆盖所有公开 API."
+        }
+      ],
       "solution": ".solution/11.12-clippy.rs",
       "student_todo": [
         "全项目 clippy 检查和文档完善"

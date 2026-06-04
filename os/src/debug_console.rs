@@ -10,7 +10,6 @@
 ///
 /// UART MMIO 直接读写硬件寄存器，无需特权级切换，更高效。
 /// 内核初始化 UART 后，应使用 MMIO 替代 SBI 进行控制台 I/O。
-
 use core::fmt::{self, Write};
 use crate::driver::uart::UartConsole;
 use suba_kernel::driver::Console;

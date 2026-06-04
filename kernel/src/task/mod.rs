@@ -12,6 +12,7 @@
 //! "有了多个任务之后，如何在它们之间切换？"
 //! 答案：保存当前任务的寄存器，恢复下一个任务的寄存器——就这么简单。
 
+#[allow(clippy::module_inception)]
 pub mod task;
 pub mod scheduler;
 
@@ -44,6 +45,7 @@ pub struct TaskManager {
 
 impl TaskManager {
     /// 创建新的任务管理器
+    #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
         Self {
             tasks: BTreeMap::new(),

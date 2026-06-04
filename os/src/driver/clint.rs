@@ -242,7 +242,7 @@ pub fn handle_timer_interrupt() {
     // 时间片调度检查
     // 每 TIME_SLICE_TICKS 个 tick 检查一次是否需要调度
     let ticks = TIMER_TICKS.load(Ordering::Relaxed);
-    if ticks % TIME_SLICE_TICKS == 0 {
+    if ticks.is_multiple_of(TIME_SLICE_TICKS) {
         // 读取 sstatus 检查是否来自用户态
         // 只有用户态任务才需要被抢占（内核态任务正在处理系统调用）
         let sstatus: usize;

@@ -13,6 +13,8 @@
 
 #![no_std]
 #![warn(missing_docs)]
+// 教学简化：Result<(), ()> 避免定义复杂错误类型
+#![allow(clippy::result_unit_err)]
 
 extern crate alloc;
 

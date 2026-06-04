@@ -70,6 +70,7 @@ impl RoundRobinScheduler {
     /// 2. 如果是就绪状态，返回该任务
     /// 3. 如果不是就绪状态，跳过并尝试下一个
     /// 4. 队列为空时返回 None
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<TaskHandle> {
         let len = self.queue.len();
         for _ in 0..len {

@@ -139,7 +139,7 @@ impl BitmapFrameAllocator {
     /// - `start_ppn`: 起始物理页号
     /// - `total_frames`: 管理的总帧数
     pub fn new(start_ppn: usize, total_frames: usize) -> Self {
-        let words = (total_frames + 63) / 64;
+        let words = total_frames.div_ceil(64);
         Self {
             bitmap: alloc::vec![0u64; words],
             start_ppn,

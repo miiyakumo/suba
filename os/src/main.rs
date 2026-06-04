@@ -337,10 +337,10 @@ fn all_user_tasks_exited() -> bool {
         let total = tm.len();
         // idle 任务 (PID=1) 总是 Running，只检查 PID >= 2 的用户任务
         for pid in 2..=total {
-            if let Some(task) = tm.get_task(pid) {
-                if task.lock().state != TaskState::Exited {
-                    return false;
-                }
+            if let Some(task) = tm.get_task(pid)
+                && task.lock().state != TaskState::Exited
+            {
+                return false;
             }
         }
         total > 1 // 至少有一个用户任务存在
@@ -356,7 +356,7 @@ fn all_user_tasks_exited() -> bool {
 fn schedule() {
     // 从调度器获取下一个就绪任务的信息
     let next_info = if let Some(sched) = SCHEDULER.get() {
-        sched.lock().next().and_then(|task| {
+        sched.lock().next().map(|task| {
             let mut t = task.lock();
             t.state = TaskState::Running;
             let pid = t.pid;
@@ -366,7 +366,7 @@ fn schedule() {
             uart_putchar(b'0' + pid as u8);
             uart_putchar(b'\n');
 
-            Some((t.context_ptr(), t.trap_frame_ptr, t.page_table_root))
+            (t.context_ptr(), t.trap_frame_ptr, t.page_table_root)
         })
     } else {
         None
@@ -427,7 +427,6 @@ fn schedule() {
 /// 1. 从 TASK_MANAGER 获取当前任务的信息
 /// 2. 激活任务的页表（page_table_root）
 /// 3. 通过 sret 切换到用户模式
-/// 用户任务入口 trampoline
 ///
 /// ## 教学概念：forkret 路径
 ///

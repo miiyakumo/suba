@@ -584,6 +584,7 @@ impl CpuOps for Riscv64CpuOps {
     /// `csrrc rd, csr, rs` 是 "atomic read and clear bits"：
     /// 1. 读取 csr 的旧值到 rd
     /// 2. 将 csr 中 rs 为 1 的位清零
+    ///
     /// 这两步是原子的，不会被中断打断。
     #[inline]
     fn disable_interrupts() -> usize {
