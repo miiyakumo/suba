@@ -53,13 +53,20 @@ impl Default for RamFs {
 }
 
 impl VfsFile for RamFs {
-    fn read(&mut self, _buf: &mut [u8]) -> Result<usize, ()> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, ()> {
         // TODO: 学生实现
         // 1. 从 self.offset 开始读取
         // 2. 读取 min(buf.len(), 剩余数据量) 字节
         // 3. 更新 offset
         // 4. 返回实际读取的字节数
-        todo!("实现 RamFs::read")
+        if self.offset >= self.data.len() {
+            return Ok(0);
+        }
+        let remaining = self.data.len() - self.offset;
+        let to_read = buf.len().min(remaining);
+        buf[..to_read].copy_from_slice(&self.data[self.offset..self.offset + to_read]);
+        self.offset += to_read;
+        Ok(to_read)
     }
 
     fn write(&mut self, _buf: &[u8]) -> Result<usize, ()> {
@@ -99,5 +106,42 @@ mod tests {
         let mut fs = RamFs::new();
         fs.seek(42);
         assert_eq!(fs.offset(), 42);
+    }
+
+    #[test]
+    fn ramfs_read_basic() {
+        let mut fs = RamFs::with_data(vec![10, 20, 30, 40, 50]);
+        let mut buf = [0u8; 3];
+        let n = fs.read(&mut buf).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(buf, [10, 20, 30]);
+        assert_eq!(fs.offset(), 3);
+    }
+
+    #[test]
+    fn ramfs_read_to_end() {
+        let mut fs = RamFs::with_data(vec![1, 2, 3]);
+        let mut buf = [0u8; 10];
+        let n = fs.read(&mut buf).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(&buf[..n], &[1, 2, 3]);
+        assert_eq!(fs.offset(), 3);
+    }
+
+    #[test]
+    fn ramfs_read_past_end() {
+        let mut fs = RamFs::with_data(vec![1, 2]);
+        fs.seek(10); // offset 超出文件长度
+        let mut buf = [0u8; 5];
+        let n = fs.read(&mut buf).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn ramfs_read_empty() {
+        let mut fs = RamFs::new();
+        let mut buf = [0u8; 5];
+        let n = fs.read(&mut buf).unwrap();
+        assert_eq!(n, 0);
     }
 }
