@@ -1579,8 +1579,8 @@
       "name": "内核页表初始化",
       "description": "在启动时创建内核页表：映射内核代码/数据段（直接映射）、映射 MMIO 区域。设置 satp 寄存器激活页表。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/8.5-kernel-page-table.rs",
       "student_todo": [

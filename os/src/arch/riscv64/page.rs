@@ -695,3 +695,393 @@ pub fn lookup_page(
 
     Err(LookupError::NotMapped)
 }
+
+// ============================================================================
+// 物理帧分配器（Bump 风格）
+// ============================================================================
+
+/// 全局物理帧分配器
+///
+/// 使用简单的 bump 策略分配物理帧。每个帧 4KB。
+/// 在内核启动时由 `init_frame_allocator()` 初始化。
+///
+/// ## 教学概念：物理帧分配
+///
+/// 内核需要动态分配物理页来创建用户页表、映射用户内存等。
+/// 这里使用最简单的 bump 分配器——分配指针只增不减。
+/// 生产级 OS 会使用 buddy allocator 或 slab allocator。
+static mut FRAME_ALLOC_NEXT: usize = 0;
+static mut FRAME_ALLOC_END: usize = 0;
+
+/// 初始化物理帧分配器
+///
+/// # 参数
+/// - `start_pa`: 可分配物理内存的起始地址（必须页对齐）
+/// - `end_pa`: 可分配物理内存的结束地址
+///
+/// # Safety
+///
+/// 必须在单线程启动阶段调用一次。
+/// `[start_pa, end_pa)` 范围内的物理内存必须可用且不与内核冲突。
+pub unsafe fn init_frame_allocator(start_pa: usize, end_pa: usize) {
+    // SAFETY: 单线程启动阶段写入全局状态
+    unsafe {
+        FRAME_ALLOC_NEXT = (start_pa + PAGE_SIZE - 1) & !(PAGE_SIZE - 1); // 页对齐
+        FRAME_ALLOC_END = end_pa & !(PAGE_SIZE - 1);
+    }
+}
+
+/// 分配一个物理帧，返回物理页号 (PPN)
+///
+/// 使用 bump 策略：每次分配推进指针一个页。
+/// 返回 `None` 表示物理内存耗尽。
+pub fn alloc_frame() -> Option<usize> {
+    // SAFETY: 单核环境下无竞争（后续可改为 spin::Mutex 保护）
+    unsafe {
+        let next = FRAME_ALLOC_NEXT;
+        if next + PAGE_SIZE > FRAME_ALLOC_END {
+            return None;
+        }
+        FRAME_ALLOC_NEXT = next + PAGE_SIZE;
+        Some(next / PAGE_SIZE)
+    }
+}
+
+/// 分配一个物理帧并清零
+///
+/// 返回清零后的物理页号。页表分配必须清零——
+/// 未初始化的 PTE 可能被硬件误认为有效。
+pub fn alloc_zeroed_frame() -> Option<usize> {
+    let ppn = alloc_frame()?;
+    let pa = ppn * PAGE_SIZE;
+    // SAFETY: 刚分配的物理帧，我们拥有独占访问权
+    unsafe {
+        core::ptr::write_bytes(pa as *mut u8, 0, PAGE_SIZE);
+    }
+    Some(ppn)
+}
+
+/// 从物理地址读取 u64（用于页表遍历）
+///
+/// # Safety
+///
+/// `pa` 必须是有效的物理地址且 8 字节对齐。
+fn phys_read_u64(pa: usize) -> Result<u64, ()> {
+    // 在身份映射下，物理地址 = 虚拟地址
+    // SAFETY: 调用者确保地址有效
+    unsafe { Ok(core::ptr::read(pa as *const u64)) }
+}
+
+/// 写入 u64 到物理地址（用于页表修改）
+///
+/// # Safety
+///
+/// `pa` 必须是有效的物理地址且 8 字节对齐。
+fn phys_write_u64(pa: usize, val: u64) -> Result<(), ()> {
+    // 在身份映射下，物理地址 = 虚拟地址
+    // SAFETY: 调用者确保地址有效
+    unsafe {
+        core::ptr::write(pa as *mut u64, val);
+    }
+    Ok(())
+}
+
+// ============================================================================
+// 用户地址空间
+// ============================================================================
+
+/// Trampoline 页的虚拟地址
+///
+/// Trampoline 页映射在用户地址空间的最顶部（USER_TOP - PAGE_SIZE）。
+/// 它包含 trap entry/return 代码，在用户态和内核态之间共享同一虚拟地址。
+///
+/// ## 教学概念：Trampoline 页
+///
+/// 当 CPU 从 U-mode 陷入 S-mode 时：
+/// 1. 硬件跳转到 stvec（trap_entry 地址）
+/// 2. 此时 satp 仍指向用户页表
+/// 3. trap_entry 代码必须在用户页表中也能访问
+///
+/// 解决方案：将 trap entry 代码映射到用户地址空间顶部的 trampoline 页。
+/// 这样即使 satp 还是用户页表，trap_entry 也能正常执行。
+/// 进入内核后切换到内核页表，再跳转到内核地址的 trap 处理代码。
+pub const TRAMPOLINE_VA: usize = suba_kernel::mm::address::USER_TOP - PAGE_SIZE;
+
+/// 用户栈顶地址（trampoline 页下方）
+///
+/// 用户栈从 TRAMPOLINE_VA - PAGE_SIZE 向下增长。
+pub const USER_STACK_TOP: usize = TRAMPOLINE_VA - PAGE_SIZE;
+
+/// 默认用户栈大小（8MB = 2048 个 4KB 页）
+pub const USER_STACK_SIZE: usize = 2048 * PAGE_SIZE;
+
+/// 用户地址空间
+///
+/// 管理一个独立的 SV39 页表，包含：
+/// - 内核空间映射（从当前内核页表复制）
+/// - 用户代码/数据段映射（U 标志）
+/// - 用户栈映射
+/// - Trampoline 页映射
+///
+/// ## 教学概念：用户地址空间 vs 内核地址空间
+///
+/// 每个用户进程有自己的页表（不同的 satp 值）。
+/// 用户页表包含两部分：
+/// 1. **低地址（用户空间）**：进程私有的代码、数据、栈
+/// 2. **高地址（内核空间）**：所有进程共享的内核映射
+///
+/// 这样设计的好处：
+/// - 用户态只能访问自己的内存（隔离）
+/// - 陷入内核时无需切换页表（内核映射已在高位）
+/// - 内核可以通过页表高位访问自己的代码和数据
+pub struct UserAddrSpace {
+    /// 根页表的物理页号
+    root_ppn: usize,
+}
+
+impl UserAddrSpace {
+    /// 创建新的用户地址空间
+    ///
+    /// 1. 分配一个物理帧作为根页表
+    /// 2. 从当前内核页表复制高地址（内核空间）映射
+    /// 3. 低地址（用户空间）初始为空
+    ///
+    /// ## 教学概念：页表复制
+    ///
+    /// SV39 的根页表有 512 个 PTE，每个覆盖 1GB：
+    /// - PTE[0..256]: 用户空间（0x0 ~ 0x0000_003F_FFFF_FFFF）
+    /// - PTE[256..512]: 内核空间（0xFFFF_FC00_0000_0000 ~ ）
+    ///
+    /// 创建用户页表时，复制内核部分的 PTE（高 256 个），
+    /// 用户部分的 PTE 全部清零（后续按需映射）。
+    ///
+    /// # 返回
+    /// - `Ok(space)`: 新的用户地址空间
+    /// - `Err(MapError)`: 帧分配失败
+    pub fn new() -> Result<Self, MapError> {
+        // 分配并清零根页表帧
+        let root_ppn = alloc_zeroed_frame().ok_or(MapError::FrameAllocFailed)?;
+
+        // 从当前内核页表复制所有内核映射
+        // 读取当前 satp 获取内核根页表 PPN
+        let kernel_satp = read_satp_current();
+        let kernel_root_ppn = kernel_satp & 0x0FFF_FFFF_FFFF; // 低 44 位是 PPN
+
+        // 复制内核 PTE 到用户页表
+        //
+        // ## 教学概念：为什么复制全部 512 个 PTE？
+        //
+        // 我们的内核使用身份映射（VA = PA），内核代码在低地址 0x80200000。
+        // SV39 根页表的 PTE[0..4] 映射了 0x0000_0000 ~ 0xFFFF_FFFF（4GB）。
+        //
+        // 如果只复制高地址 PTE（索引 256..512），用户态 trap 进入内核后
+        // （satp 仍指向用户页表），内核代码的低地址映射不存在，会触发页错误。
+        //
+        // 因此必须复制所有 512 个 PTE，确保内核的完整映射在用户页表中可用。
+        // 用户空间的 PTE 在用户映射建立时会覆盖这些条目。
+        for i in 0..512 {
+            let src_addr = kernel_root_ppn * PAGE_SIZE + i * 8;
+            let dst_addr = root_ppn * PAGE_SIZE + i * 8;
+            if let Ok(pte_val) = phys_read_u64(src_addr) {
+                let _ = phys_write_u64(dst_addr, pte_val);
+            }
+        }
+
+        Ok(Self { root_ppn })
+    }
+
+    /// 获取根页表的物理页号
+    ///
+    /// 用于设置 satp 寄存器：`satp = (8 << 60) | root_ppn`
+    pub fn root_ppn(&self) -> usize {
+        self.root_ppn
+    }
+
+    /// 映射一个用户页
+    ///
+    /// 在用户页表中建立虚拟页 → 物理页的映射。
+    /// 自动添加 U (User) 标志，允许用户态访问。
+    ///
+    /// # 参数
+    /// - `va`: 虚拟地址（必须页对齐）
+    /// - `pa`: 物理地址（必须页对齐）
+    /// - `flags`: 额外的 PTE 标志（U 标志会自动添加）
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保物理地址有效且不与其他映射冲突。
+    pub unsafe fn map_user_page(
+        &self,
+        va: usize,
+        pa: usize,
+        flags: PteFlags,
+    ) -> Result<(), MapError> {
+        // 自动添加 U 标志
+        let user_flags = PteFlags(flags.0 | PteFlags::USER);
+        map_page(
+            va,
+            pa,
+            user_flags,
+            self.root_ppn,
+            phys_read_u64,
+            phys_write_u64,
+            alloc_zeroed_frame,
+        )
+    }
+
+    /// 映射一个内核页（不带 U 标志）
+    ///
+    /// 用于映射 trampoline 页等内核可执行但用户也可访问的页面。
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保物理地址有效。
+    pub unsafe fn map_kernel_page(
+        &self,
+        va: usize,
+        pa: usize,
+        flags: PteFlags,
+    ) -> Result<(), MapError> {
+        map_page(
+            va,
+            pa,
+            flags,
+            self.root_ppn,
+            phys_read_u64,
+            phys_write_u64,
+            alloc_zeroed_frame,
+        )
+    }
+
+    /// 映射用户代码/数据段
+    ///
+    /// 将 ELF 加载后的用户程序映射到用户地址空间。
+    /// 根据 flags 设置正确的权限（R/W/X + U）。
+    ///
+    /// # 参数
+    /// - `va`: 段的虚拟起始地址（页对齐）
+    /// - `pa`: 段的物理起始地址（页对齐）
+    /// - `size`: 段的大小（字节，会向上取整到页）
+    /// - `flags`: PTE 标志（U 标志会自动添加）
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保物理地址范围有效。
+    pub unsafe fn map_segment(
+        &self,
+        va: usize,
+        pa: usize,
+        size: usize,
+        flags: PteFlags,
+    ) -> Result<(), MapError> {
+        let num_pages = size.div_ceil(PAGE_SIZE);
+        for i in 0..num_pages {
+            let page_va = va + i * PAGE_SIZE;
+            let page_pa = pa + i * PAGE_SIZE;
+            // SAFETY: 调用者确保物理地址范围有效
+            unsafe {
+                self.map_user_page(page_va, page_pa, flags)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 映射用户栈
+    ///
+    /// 在用户地址空间的高地址区域分配并映射用户栈。
+    /// 栈从 `USER_STACK_TOP` 向下增长，大小为 `USER_STACK_SIZE`。
+    ///
+    /// ## 教学概念：用户栈布局
+    ///
+    /// ```text
+    /// TRAMPOLINE_VA ───────────  ← USER_TOP - PAGE_SIZE
+    ///   [trampoline 页]
+    /// USER_STACK_TOP ───────────  ← TRAMPOLINE_VA - PAGE_SIZE
+    ///   [用户栈 ↓ 向下增长]
+    ///   ...
+    ///   [栈底]
+    /// ```
+    ///
+    /// # 返回
+    /// - `Ok(stack_top_va)`: 用户栈顶虚拟地址
+    /// - `Err(MapError)`: 帧分配失败
+    pub fn map_user_stack(&self) -> Result<usize, MapError> {
+        let num_pages = USER_STACK_SIZE / PAGE_SIZE;
+        let stack_bottom_va = USER_STACK_TOP - USER_STACK_SIZE;
+
+        for i in 0..num_pages {
+            let va = stack_bottom_va + i * PAGE_SIZE;
+            // 分配物理帧用于栈页
+            let pa_ppn = alloc_zeroed_frame().ok_or(MapError::FrameAllocFailed)?;
+            let pa = pa_ppn * PAGE_SIZE;
+            // 栈页：可读写 + 用户态
+            let flags = PteFlags(PteFlags::READ | PteFlags::WRITE);
+            // SAFETY: 刚分配的物理帧，独占访问
+            unsafe {
+                self.map_user_page(va, pa, flags)?;
+            }
+        }
+
+        Ok(USER_STACK_TOP)
+    }
+
+    /// 映射 trampoline 页
+    ///
+    /// 将 trap entry/return 代码映射到用户地址空间顶部。
+    /// Trampoline 页在用户页表和内核页表中映射到相同的虚拟地址。
+    ///
+    /// ## 教学概念：为什么需要 Trampoline
+    ///
+    /// 当用户态发生 trap 时：
+    /// 1. CPU 跳转到 stvec（trap_entry 的地址）
+    /// 2. 此时 satp 仍然指向用户页表
+    /// 3. trap_entry 代码必须在用户页表中可访问
+    ///
+    /// 解决方案：将 trap entry 代码映射到一个固定虚拟地址（trampoline），
+    /// 在用户页表和内核页表中都映射到同一物理页。
+    ///
+    /// ```text
+    /// 用户页表:  TRAMPOLINE_VA → trap_entry 物理页
+    /// 内核页表:  TRAMPOLINE_VA → trap_entry 物理页 (同一物理页)
+    /// ```
+    ///
+    /// # 参数
+    /// - `trap_entry_pa`: trap entry 代码的物理地址
+    ///
+    /// # Safety
+    ///
+    /// `trap_entry_pa` 必须指向包含有效 trap entry 代码的物理页。
+    pub unsafe fn map_trampoline(&self, trap_entry_pa: usize) -> Result<(), MapError> {
+        // Trampoline 页：可读可执行（用户态 + 内核态都可访问）
+        let flags = PteFlags(PteFlags::VALID | PteFlags::READ | PteFlags::EXECUTE);
+        // SAFETY: 调用者确保 trap_entry_pa 有效
+        unsafe {
+            self.map_kernel_page(TRAMPOLINE_VA, trap_entry_pa, flags)?;
+        }
+        Ok(())
+    }
+
+    /// 激活此用户页表
+    ///
+    /// 将 satp 切换到此用户地址空间的根页表。
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保页表已正确初始化，且当前不在用户态。
+    pub unsafe fn activate(&self) {
+        // SAFETY: root_ppn 指向有效的 SV39 页表
+        unsafe {
+            super::switch_page_table(self.root_ppn);
+        }
+    }
+}
+
+/// 读取当前 satp 寄存器值（内部使用）
+fn read_satp_current() -> usize {
+    let satp: usize;
+    // SAFETY: satp 是只读 CSR
+    unsafe {
+        core::arch::asm!("csrr {}, satp", out(reg) satp, options(nomem, nostack));
+    }
+    satp
+}
