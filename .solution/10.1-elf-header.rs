@@ -1,67 +1,27 @@
-// .solution/10.1-elf-header.rs — ELF 头解析参考实现
-//
-// 本文件是 feature 10.1 的参考实现。
-// 学生应在 kernel/src/loader/mod.rs 中实现 ELF 头的解析和验证。
-//
-// ## 实现要点
-//
-// 1. ELF 常量定义（EI_CLASS, ELFCLASS64, EM_RISCV, ET_EXEC 等）
-// 2. ElfError 错误枚举
-// 3. ElfHeader64::from_bytes() — 从原始字节解析 ELF 头
-// 4. ElfHeader64::validate() — 验证 ELF64 + 小端 + RISC-V + 可执行
-// 5. 入口点和程序头表的提取方法
-//
-// ## 教学概念：ELF 文件格式
-//
-// ELF (Executable and Linkable Format) 是 Linux/RISC-V 的标准可执行格式。
-// 一个 ELF 文件由以下部分组成：
-//
-//   ┌──────────────────┐  ← 文件起始
-//   │   ELF Header     │  64 字节（ELF64），描述文件整体属性
-//   ├──────────────────┤
-//   │ Program Headers  │  描述"段"（Segment）— 加载器用这个
-//   ├──────────────────┤
-//   │   .text 段       │  机器代码
-//   │   .rodata 段     │  只读数据
-//   │   .data 段       │  已初始化全局变量
-//   │   .bss 段        │  未初始化全局变量（文件中不占空间）
-//   ├──────────────────┤
-//   │ Section Headers  │  描述"节"（Section）— 链接器用这个
-//   └──────────────────┘
-//
-// 加载器只关心 ELF Header 和 Program Headers：
-// 1. 读取 ELF Header → 验证魔数、架构、类型
-// 2. 读取 Program Headers → 找到 PT_LOAD 段
-// 3. 将 PT_LOAD 段复制到内存中 p_vaddr 指定的位置
-// 4. 跳转到 e_entry 开始执行
+//! # 参考实现：ELF 头解析
+//!
+//! 本文件展示如何从原始字节解析 ELF64 头并验证其有效性。
+//!
+//! ## 核心思路
+//!
+//! ELF 头是文件的前 64 字节，加载器需要：
+//! 1. 验证魔数 `0x7f 'E' 'L' 'F'` — 确认是 ELF 文件
+//! 2. 检查 ELFCLASS64 + ELFDATA2LSB — 确认是 64 位小端
+//! 3. 检查 EM_RISCV — 确认是 RISC-V 程序
+//! 4. 检查 ET_EXEC/ET_DYN — 确认是可执行文件
+//! 5. 提取入口点和程序头表位置 — 为后续加载做准备
 
-// === ELF 常量 ===
-
+// ELF 常量
 pub const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
-
-// e_ident 索引
 pub const EI_CLASS: usize = 4;
 pub const EI_DATA: usize = 5;
-pub const EI_VERSION: usize = 6;
-
-// ELFCLASS
-pub const ELFCLASS32: u8 = 1;
 pub const ELFCLASS64: u8 = 2;
-
-// ELFDATA
 pub const ELFDATA2LSB: u8 = 1;
-pub const ELFDATA2MSB: u8 = 2;
-
-// e_type
-pub const ET_REL: u16 = 1;
 pub const ET_EXEC: u16 = 2;
 pub const ET_DYN: u16 = 3;
-
-// e_machine
 pub const EM_RISCV: u16 = 243;
 
-// === 错误类型 ===
-
+/// ELF 解析错误
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ElfError {
     TooShort,
@@ -70,12 +30,10 @@ pub enum ElfError {
     NotLittleEndian,
     NotRiscV,
     NotExecutable,
-    PhdrOutOfBounds,
 }
 
-// === ELF 头结构体 ===
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// ELF64 文件头（#[repr(C)] 匹配二进制布局）
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ElfHeader64 {
     pub e_ident: [u8; 16],
@@ -95,9 +53,9 @@ pub struct ElfHeader64 {
 }
 
 impl ElfHeader64 {
-    /// 从原始字节解析 ELF 头
+    /// 从原始字节读取 ELF 头
     pub fn from_bytes(data: &[u8]) -> Result<Self, ElfError> {
-        if data.len() < core::mem::size_of::<ElfHeader64>() {
+        if data.len() < 64 {
             return Err(ElfError::TooShort);
         }
         // SAFETY: 长度已检查 >= 64，ElfHeader64 是 #[repr(C)] POD 类型
@@ -107,7 +65,7 @@ impl ElfHeader64 {
         Ok(header)
     }
 
-    /// 验证 ELF 头：魔数 → ELF64 → 小端 → RISC-V → 可执行
+    /// 验证：魔数 → ELF64 → 小端 → RISC-V → 可执行
     pub fn validate(&self) -> Result<(), ElfError> {
         if self.e_ident[0..4] != ELF_MAGIC {
             return Err(ElfError::BadMagic);
@@ -126,31 +84,64 @@ impl ElfHeader64 {
         }
         Ok(())
     }
-
-    pub fn entry_point(&self) -> usize {
-        self.e_entry as usize
-    }
-
-    pub fn phdr_offset(&self) -> usize {
-        self.e_phoff as usize
-    }
-
-    pub fn phdr_count(&self) -> usize {
-        self.e_phnum as usize
-    }
-
-    pub fn phdr_entry_size(&self) -> usize {
-        self.e_phentsize as usize
-    }
 }
 
-// === 便捷函数 ===
-
-/// 从原始字节解析并验证 ELF64 RISC-V 头
+/// 解析并验证 ELF 头，返回关键信息
 ///
 /// 返回 (entry, phoff, phentsize, phnum)
 pub fn parse_elf_header(data: &[u8]) -> Result<(u64, u64, u16, u16), ElfError> {
     let header = ElfHeader64::from_bytes(data)?;
     header.validate()?;
     Ok((header.e_entry, header.e_phoff, header.e_phentsize, header.e_phnum))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_valid_elf_bytes() -> [u8; 64] {
+        let mut data = [0u8; 64];
+        data[0..4].copy_from_slice(&ELF_MAGIC);
+        data[4] = ELFCLASS64;
+        data[5] = ELFDATA2LSB;
+        data[6] = 1;
+        data[16..18].copy_from_slice(&ET_EXEC.to_le_bytes());
+        data[18..20].copy_from_slice(&EM_RISCV.to_le_bytes());
+        data[20..24].copy_from_slice(&1u32.to_le_bytes());
+        data[24..32].copy_from_slice(&0x8020_0000u64.to_le_bytes());
+        data[32..40].copy_from_slice(&64u64.to_le_bytes());
+        data[52..54].copy_from_slice(&64u16.to_le_bytes());
+        data[54..56].copy_from_slice(&56u16.to_le_bytes());
+        data[56..58].copy_from_slice(&2u16.to_le_bytes());
+        data
+    }
+
+    #[test]
+    fn parse_valid() {
+        let data = make_valid_elf_bytes();
+        let (entry, phoff, phentsize, phnum) = parse_elf_header(&data).unwrap();
+        assert_eq!(entry, 0x8020_0000);
+        assert_eq!(phoff, 64);
+        assert_eq!(phentsize, 56);
+        assert_eq!(phnum, 2);
+    }
+
+    #[test]
+    fn too_short() {
+        assert_eq!(parse_elf_header(&[0u8; 32]), Err(ElfError::TooShort));
+    }
+
+    #[test]
+    fn bad_magic() {
+        let mut data = make_valid_elf_bytes();
+        data[0] = 0x00;
+        assert_eq!(parse_elf_header(&data), Err(ElfError::BadMagic));
+    }
+
+    #[test]
+    fn not_elf64() {
+        let mut data = make_valid_elf_bytes();
+        data[EI_CLASS] = 1; // ELFCLASS32
+        assert_eq!(parse_elf_header(&data), Err(ElfError::NotElf64));
+    }
 }
