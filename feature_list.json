@@ -1459,7 +1459,7 @@
       "name": "设置 stvec 陷阱向量",
       "description": "在 rust_main 中将 stvec CSR 设置为 trap_entry 的地址。理解 RISC-V 的陷阱向量机制——发生异常/中断时 CPU 跳转到 stvec 指向的地址。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/7.10-stvec-setup.rs",

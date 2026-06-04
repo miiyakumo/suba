@@ -153,9 +153,10 @@ pub fn uart_puts(s: &str) {
 /// ## 启动步骤
 /// 1. 打印启动横幅
 /// 2. 初始化内核堆（2MB）
-/// 3. 初始化任务管理器和调度器
-/// 4. 创建 idle 任务（PID 1）
-/// 5. 启动调度，进入 idle 循环
+/// 3. 设置陷阱向量（stvec → trap_entry）
+/// 4. 初始化任务管理器和调度器
+/// 5. 创建 idle 任务（PID 1）
+/// 6. 启动调度，进入 idle 循环
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main() -> ! {
     // ---- Step 1: 打印启动信息 ----
@@ -176,7 +177,13 @@ pub extern "C" fn rust_main() -> ! {
     unsafe { GLOBAL_ALLOC.init(heap_start, heap::HEAP_SIZE) };
     uart_puts("[suba] heap initialized\n");
 
-    // ---- Step 3: 初始化任务系统 ----
+    // ---- Step 3: 设置陷阱向量 ----
+    // 将 stvec CSR 设置为 trap_entry 的地址
+    // 发生异常/中断时 CPU 会跳转到 trap_entry
+    arch::riscv64::init_trap();
+    uart_puts("[suba] trap vector set\n");
+
+    // ---- Step 4: 初始化任务系统 ----
     let mut tm = TaskManager::new();
     let mut sched = RoundRobinScheduler::new();
     uart_puts("[suba] task system ready\n");
