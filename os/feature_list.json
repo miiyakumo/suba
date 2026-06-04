@@ -1609,8 +1609,8 @@
       "name": "实现用户地址空间创建",
       "description": "为用户程序创建独立的地址空间：分配根页表页 → 映射用户代码/数据段（U 标志）→ 映射用户栈 → 映射 trampoline 页。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/8.7-user-addr-space.rs",
       "student_todo": [
