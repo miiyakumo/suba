@@ -494,91 +494,76 @@ pub extern "C" fn rust_main() -> ! {
     uart_puts("[boot] exit handler registered\n");
 
     // ================================================================
-    // Step 9: 加载 init 程序到用户地址空间
+    // Step 9: 加载用户程序并创建多个任务
     // ================================================================
-    // 嵌入 init 用户程序的 ELF 二进制数据
-    // 这是一个最小的 RISC-V 程序：li a7,93; ecall (exit)
     let init_elf = include_bytes!("user_init.bin");
-    uart_puts("[boot] loading init program...\n");
+    uart_puts("[boot] loading user programs...\n");
 
-    // 使用 ELF 加载器将程序加载到用户地址空间
-    match arch::riscv64::load_elf_to_space(init_elf) {
+    // 内核栈顶（所有用户任务共享，boot_stack_top 在 Step 8 中声明）
+    let kernel_sp = boot_stack_top as usize;
+
+    // --- 创建用户任务 A ---
+    let task_a = match arch::riscv64::load_elf_to_space(init_elf) {
         Ok((user_space, entry, stack_top)) => {
-            uart_puts("[boot] init loaded: entry=");
-            arch::riscv64::page::print_hex(entry);
-            uart_puts(", stack=");
-            arch::riscv64::page::print_hex(stack_top);
-            uart_puts("\n");
-
-            // 激活用户页表
-            // SAFETY: user_space 包含有效的页表映射
-            unsafe { user_space.activate(); }
-            uart_puts("[boot] user page table activated\n");
-
-            // 获取内核栈顶（供 trap_return 使用）
-            unsafe extern "C" { fn boot_stack_top(); }
-            let kernel_sp = boot_stack_top as usize;
-
-            // ============================================================
-            // Step 9.5: sret 切换到用户态
-            // ============================================================
-            // 通过 sret 指令从 S-mode 切换到 U-mode。
-            //
-            // ## 教学概念：sret 切换的完整流程
-            //
-            // enter_user_mode() 内部执行以下步骤：
-            // 1. 创建 TrapFrame，设置：
-            //    - sepc = 用户入口地址（sret 后的 PC）
-            //    - sstatus.SPP = 0（sret 后进入 U-mode）
-            //    - sstatus.SPIE = 1（sret 后启用中断）
-            //    - x2_sp = 用户栈顶
-            //    - kernel_sp = 内核栈顶（从用户态 trap 回来时使用）
-            //    - x10_a0 = argc（用户程序参数）
-            // 2. 将 TrapFrame 指针写入 sscratch CSR
-            //    （从用户态 trap 回来时，trap_entry 读取 sscratch 恢复内核上下文）
-            // 3. 调用 trap_return → 恢复寄存器 → sret
-            //
-            // sret 硬件行为：
-            //   PC ← sepc（跳转到用户入口）
-            //   特权级 ← SPP = 0（切换到 U-mode）
-            //   SIE ← SPIE（恢复中断使能）
-            //
-            // ## 教学概念：sscratch 的作用
-            //
-            // sscratch 保存内核栈上的 TrapFrame 指针。
-            // 当从 U-mode 陷入 S-mode 时：
-            //   1. CPU 跳转到 stvec（trap_entry）
-            //   2. trap_entry 读取 sscratch 获取 TrapFrame 地址
-            //   3. 保存全部寄存器到 TrapFrame
-            //   4. 切换到内核栈（sp ← kernel_sp）
-            //   5. 调用 trap_handler
-            //
-            // 这样，无论用户态的 sp 是什么值，内核都能正确保存上下文。
-            uart_puts("[boot] entering user mode (sret)...\n");
-
-            // 创建 init 任务并注册到任务管理器
-            // （用于 exit 时标记任务状态）
-            let init_task = {
+            let root_ppn = user_space.root_ppn();
+            let task = {
                 let mut tm = TASK_MANAGER.get().unwrap().lock();
-                tm.create_task(entry, kernel_sp, stack_top)
+                tm.create_user_task(user_task_entry as usize, kernel_sp, stack_top, root_ppn, entry)
             };
-            let init_pid = {
-                let task = init_task.lock();
-                task.pid
-            };
-            CURRENT_PID.store(init_pid, Ordering::Relaxed);
-            uart_puts("[boot] init task PID=");
-            uart_putchar(b'0' + init_pid as u8);
+            uart_puts("[boot] task A: PID=");
+            uart_putchar(b'0' + task.lock().pid as u8);
             uart_putchar(b'\n');
-
-            // entry 和 stack_top 由 ELF 加载器验证，
-            // kernel_sp 指向有效的内核栈顶
-            arch::riscv64::enter_user_mode(entry, stack_top, kernel_sp, 0);
-            // enter_user_mode 不返回（已切换到用户态）
+            Some(task)
         }
         Err(_) => {
-            uart_puts("[boot] WARN: init ELF load failed, running in kernel mode\n");
+            uart_puts("[boot] WARN: ELF load failed for task A\n");
+            None
         }
+    };
+
+    // --- 创建用户任务 B ---
+    let task_b = match arch::riscv64::load_elf_to_space(init_elf) {
+        Ok((user_space, entry, stack_top)) => {
+            let root_ppn = user_space.root_ppn();
+            let task = {
+                let mut tm = TASK_MANAGER.get().unwrap().lock();
+                tm.create_user_task(user_task_entry as usize, kernel_sp, stack_top, root_ppn, entry)
+            };
+            uart_puts("[boot] task B: PID=");
+            uart_putchar(b'0' + task.lock().pid as u8);
+            uart_putchar(b'\n');
+            Some(task)
+        }
+        Err(_) => {
+            uart_puts("[boot] WARN: ELF load failed for task B\n");
+            None
+        }
+    };
+
+    // 将用户任务加入调度器
+    {
+        let mut sched = SCHEDULER.get().unwrap().lock();
+        if let Some(ref task) = task_a { sched.enqueue(task.clone()); }
+        if let Some(ref task) = task_b { sched.enqueue(task.clone()); }
+    }
+    uart_puts("[boot] user tasks enqueued\n");
+
+    // ============================================================
+    // Step 9.5: sret 切换到用户态（第一个用户任务）
+    // ============================================================
+    if let Some(ref task) = task_a {
+        let task = task.lock();
+        CURRENT_PID.store(task.pid, Ordering::Relaxed);
+
+        // 激活任务 A 的页表
+        if task.page_table_root != 0 {
+            // SAFETY: page_table_root 是有效的 SV39 页表根 PPN
+            unsafe { arch::riscv64::switch_page_table(task.page_table_root); }
+        }
+
+        uart_puts("[boot] entering user mode with task A...\n");
+        arch::riscv64::enter_user_mode(task.user_entry, task.ustack_top, kernel_sp, 0);
+        // enter_user_mode 不返回
     }
 
     // ================================================================
