@@ -218,7 +218,7 @@ fn after_syscall_exit(tf: &mut arch::riscv64::TrapFrame) {
     uart_putchar(b'0' + pid as u8);
     uart_puts(" exited with code ");
     // 简单打印退出码（仅支持 0-9）
-    if exit_code >= 0 && exit_code <= 9 {
+    if (0..=9).contains(&exit_code) {
         uart_putchar(b'0' + exit_code as u8);
     } else {
         uart_putchar(b'?');

@@ -129,21 +129,31 @@ pub fn sys_read(fd: usize, _buf: usize, len: usize) -> usize {
 
 /// 退出系统调用。
 ///
-/// 终止当前任务。
+/// 终止当前任务。在真实内核中，此函数不应返回——
+/// 任务被标记为 Exited 后，调度器选择下一个任务运行。
+///
+/// ## 教学概念：exit 的两层实现
+///
+/// kernel crate 的 sys_exit 是"桩"函数，仅返回退出码。
+/// 真正的退出逻辑在硬件后端（os crate）的 AFTER_SYSCALL 回调中：
+///
+/// ```text
+/// kernel::sys_exit(exit_code)     → 返回退出码（桩）
+/// os::after_syscall_exit(tf)      → 检测 a7==93
+///   → TASK_MANAGER.exit_task()    → 标记 Exited
+///   → schedule()                  → 上下文切换到下一个任务
+/// ```
+///
+/// 这种分层设计使得内核核心不依赖具体架构。
 ///
 /// # 参数
 /// - `exit_code`: 退出码
 ///
 /// # 返回值
-/// 不返回（在真实内核中，此函数不会返回）。
+/// 返回退出码（在 Mock 环境下；真实内核中此值不会被使用）。
 pub fn sys_exit(exit_code: i32) -> usize {
-    // TODO: 学生实现 — 在真实内核中需要：
-    // 1. 获取当前任务的 TCB
-    // 2. 将任务状态设为 Exited
-    // 3. 记录退出码
-    // 4. 触发调度（让出 CPU，不再返回）
-    //
-    // Mock: 返回退出码（真实内核中不返回）
+    // Mock 环境：返回退出码
+    // 真实内核：硬件后端的 AFTER_SYSCALL 回调处理退出逻辑
     exit_code as usize
 }
 

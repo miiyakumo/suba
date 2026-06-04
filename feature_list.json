@@ -2081,7 +2081,7 @@
       "name": "用户态 syscall exit 路径",
       "description": "验证 syscall exit 路径：用户 ecall(sys_exit) → trap → sys_exit → 任务状态设为 Exited → 调度器选择下一个任务 → 上下文切换。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/11.6-syscall-exit-path.rs",

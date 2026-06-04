@@ -71,16 +71,30 @@
 // 4. schedule 函数
 //
 //    fn schedule() -> ! {
-//        if let Some(sched) = SCHEDULER.get() {
-//            let mut sched = sched.lock();
-//            if let Some(next_task) = sched.next() {
-//                let mut task = next_task.lock();
-//                task.state = TaskState::Running;
-//                // ... 上下文切换
+//        // 从调度器获取下一个就绪任务的上下文（拷贝出来后释放锁）
+//        let next_ctx = if let Some(sched) = SCHEDULER.get() {
+//            sched.lock().next().and_then(|task| {
+//                let mut t = task.lock();
+//                t.state = TaskState::Running;
+//                CURRENT_PID.store(t.pid, Ordering::Relaxed);
+//                Some(t.context) // Context 是 Copy
+//            })
+//        } else {
+//            None
+//        };
+//
+//        if let Some(ctx) = next_ctx {
+//            // 临时 Context：不需要保存退出任务的上下文
+//            let mut dummy = Context::zero_init();
+//            // 上下文切换：恢复 next_task 的寄存器并跳转到其入口
+//            unsafe {
+//                Riscv64Arch::context_switch(&mut dummy, &ctx);
 //            }
+//            unreachable!();
 //        }
-//        // 没有就绪任务，关机
-//        power::shutdown(false)
+//
+//        // 没有就绪任务，idle
+//        idle_loop()
 //    }
 //
 // ============================================================================
@@ -108,4 +122,7 @@
 // 1. exit 不会返回到用户程序 — 任务被标记为 Exited，调度器选择下一个任务
 // 2. 全局 CURRENT_PID 用于在 trap 处理中识别当前任务
 // 3. 回调模式保持了 kernel crate 和 os crate 的分层架构
-// 4. schedule() 是 noreturn 函数 — 它要么切换到另一个任务，要么关机
+// 4. schedule() 是 noreturn 函数 — 它要么切换到另一个任务，要么 idle
+// 5. context_switch 保存/恢复 callee-saved 寄存器（ra, sp, s0-s11）
+// 6. 退出任务的上下文不需要保存（dummy Context），因为不会再被调度
+// 7. 下一个任务的 Context 已在 Task::new 中初始化（ra=entry, sp=kstack_top）
