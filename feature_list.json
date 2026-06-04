@@ -2060,9 +2060,15 @@
       "name": "用户态 syscall write 路径",
       "description": "验证完整的 syscall 路径：用户 ecall → trap_entry → trap_handler → syscall dispatch → sys_write → UART 输出 → trap_return → 用户继续执行。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "correctness",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo build 零警告, trap_handler 中调用 syscall dispatch, sepc+=4 正确跳过 ecall, 完整路径文档"
+        }
+      ],
       "solution": ".solution/11.5-syscall-write-path.rs",
       "student_todo": [
         "完整 syscall 路径验证"
