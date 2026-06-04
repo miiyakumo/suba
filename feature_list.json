@@ -1442,8 +1442,11 @@
       "description": "在 os/src/arch/riscv64/mod.rs 中实现 trap_handler() 函数：读取 scause 寄存器，根据异常类型分发——ecall 走系统调用路径，timer 走时钟中断路径，外部中断走 PLIC 路径。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
-      "review_status": null,
-      "review_log": [],
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, scause 读取+分发逻辑正确 (中断/异常区分, ecall sepc+4, timer SBI set_timer, external PLIC stub)",
+        "pedagogy: scause 编码教学注释, CSR 辅助函数文档完整 (read_scause/read_stval/read_sepc/set_next_timer), .solution/ 完整"
+      ],
       "solution": ".solution/7.9-trap-handler.rs",
       "student_todo": [
         "os/src/arch/riscv64/mod.rs:trap_handler"

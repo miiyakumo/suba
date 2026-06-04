@@ -45,21 +45,32 @@ unsafe extern "C" {
     pub fn trap_return(trap_frame: *mut TrapFrame);
 }
 
-/// trap_handler — 陷阱处理函数（由 trap.S 调用）
+/// trap_handler — 陷阱分发函数（由 trap.S 调用）
 ///
-/// 读取 scause 寄存器判断陷阱类型，分发到对应的处理逻辑。
+/// 当 CPU 发生陷阱时，硬件自动跳转到 trap_entry（汇编），
+/// 保存全部寄存器后调用本函数。本函数根据 scause 寄存器的值
+/// 将陷阱分发到对应的处理逻辑。
 ///
-/// ## 教学概念：RISC-V 陷阱分发
+/// ## 教学概念：RISC-V 陷阱分发 (Trap Dispatch)
+///
+/// RISC-V 的陷阱处理是"统一入口，分别处理"：
+/// 1. 所有陷阱共享同一个入口地址（stvec → trap_entry）
+/// 2. 软件读取 scause 判断陷阱类型
+/// 3. 根据类型跳转到不同的处理函数
+///
+/// 这与 x86 的"中断向量表"不同——x86 硬件直接跳转到不同处理函数。
 ///
 /// scause 寄存器编码陷阱原因：
-/// - 最高位 (bit 63) = 1: 中断（异步事件）
+/// - 最高位 (bit 63) = 1: 中断（异步事件，由硬件触发）
 /// - 最高位 = 0: 异常（同步事件，由当前指令触发）
 /// - 低位 = 具体原因编号
 ///
 /// 常见 scause 值：
-/// - 8: Environment call from U-mode（用户态系统调用）
-/// - (1<<63)|5: Supervisor timer interrupt（时钟中断）
-/// - (1<<63)|9: Supervisor external interrupt（外部设备中断）
+/// | scause       | 类型 | 含义                     |
+/// |--------------|------|--------------------------|
+/// | 8            | 异常 | 用户态 ecall（系统调用）  |
+/// | (1<<63) \| 5 | 中断 | 时钟中断 (timer)         |
+/// | (1<<63) \| 9 | 中断 | 外部中断 (PLIC)          |
 ///
 /// # Safety
 /// 必须从 trap.S 中以正确的 TrapFrame 指针调用。
@@ -68,32 +79,44 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
     // SAFETY: trap_frame 由 trap.S 传入，指向有效的 TrapFrame
     let tf = unsafe { &mut *trap_frame };
 
-    // 读取 scause 寄存器
+    // TODO(student): 读取 scause 寄存器，判断陷阱类型
+    // 提示: 调用 read_scause() 函数
+    // scause 最高位区分中断 (1) vs 异常 (0)
     let scause = read_scause();
 
-    // 最高位区分中断 vs 异常
+    // TODO(student): 根据 scause 的最高位，分发到中断处理或异常处理
+    // 提示:
+    //   - 最高位 (bit 63) 是中断标志位：scause & (1 << 63) != 0 → 中断
+    //   - 中断编号 = scause & !(1 << 63)（去掉最高位）
+    //   - 异常编号 = scause 本身（最高位已经是 0）
     const INTERRUPT_BIT: usize = 1 << (usize::BITS - 1);
 
     if scause & INTERRUPT_BIT != 0 {
         // ---- 中断处理 ----
+        // TODO(student): 根据中断编号分发
+        // - 5: 时钟中断 → 调用 set_next_timer()
+        // - 9: 外部中断 → 暂时打印信息（后续 feature 实现 PLIC）
+        // - 其他: panic
         match scause & !INTERRUPT_BIT {
             5 => {
                 // Supervisor timer interrupt（时钟中断）
-                // 设置下一次时钟中断
                 set_next_timer();
                 // TODO: 时间片调度（后续 feature）
             }
             9 => {
-                // Supervisor external interrupt（外部设备中断，如 UART）
+                // Supervisor external interrupt（外部设备中断）
                 // TODO: PLIC 中断处理（后续 feature）
             }
             _ => {
-                // 未知中断
                 panic!("[suba] unexpected interrupt: scause={:#x}", scause);
             }
         }
     } else {
         // ---- 异常处理 ----
+        // TODO(student): 根据异常编号分发
+        // - 8: ecall from U-mode → 系统调用
+        //   重要: 需要将 sepc + 4 跳过 ecall 指令，否则 sret 后会重新执行 ecall！
+        // - 其他: panic（打印 scause, stval, sepc 信息）
         match scause {
             8 => {
                 // Environment call from U-mode（用户态系统调用）
@@ -103,7 +126,6 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
                 // dispatch_syscall(tf);
             }
             _ => {
-                // 未知异常
                 let stval = read_stval();
                 panic!(
                     "[suba] unexpected exception: scause={:#x}, stval={:#x}, sepc={:#x}",
@@ -113,10 +135,41 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
         }
     }
 
-    // 处理完毕，恢复寄存器并返回
-    // SAFETY: trap_frame 指向有效的 TrapFrame（由 trap_entry 保存）
+    // TODO(student): 处理完毕后，调用 trap_return 恢复寄存器并返回
+    // trap_return 在 trap.S 中实现，会从 TrapFrame 恢复所有寄存器并执行 sret
+    // 提示: trap_return(trap_frame)
     unsafe {
         trap_return(trap_frame);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 陷阱初始化
+// ---------------------------------------------------------------------------
+
+/// 初始化陷阱处理：设置 stvec CSR 为 trap_entry 地址
+///
+/// ## 教学概念：stvec CSR
+///
+/// stvec (Supervisor Trap Vector) 寄存器告诉 CPU：
+/// "当发生陷阱时，跳转到这个地址"。
+///
+/// stvec 的格式：
+/// - bits 63:2: 基地址（必须 4 字节对齐）
+/// - bits 1:0: 陷阱模式
+///   - 0 (Direct): 所有陷阱跳转到基地址
+///   - 1 (Vectored): 中断跳转到 base+4*cause，异常跳转到 base
+///
+/// 我们使用 Direct 模式——所有陷阱统一进入 trap_entry，
+/// 由软件根据 scause 分发。这比 Vectored 模式更灵活。
+pub fn init_trap() {
+    // SAFETY: 写入 stvec 是初始化阶段的安全操作
+    unsafe {
+        asm!(
+            "csrw stvec, {addr}",
+            addr = in(reg) trap_entry as usize,
+            options(nomem, nostack)
+        );
     }
 }
 
