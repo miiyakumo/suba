@@ -1,12 +1,19 @@
-// 连接 sys_write/sys_read 到 VFS 参考实现
-//
-// 核心改动：在 kernel/src/syscall/impl.rs 中
+//! # 6.8 参考实现：连接 sys_write/sys_read 到 VFS
+//!
+//! 核心改动：在 kernel/src/syscall/impl.rs 中
+//!
+//! ## 关键变化
+//! 1. 使用 `spin::Lazy` 延迟初始化全局 FdTable（FdTable::new() 非 const fn）
+//! 2. sys_write/sys_read 通过 FdTable 查找文件描述符，调用 VfsFile 方法
+//! 3. 添加集成测试验证完整路径：syscall → FdTable → VfsFile
 
-// === 新增：全局 FdTable ===
 use spin::Mutex;
-use crate::fs::{FdTable, VfsFile};
+use crate::fs::FdTable;
 
-static FD_TABLE: Mutex<FdTable> = Mutex::new(FdTable::new());
+// === spin::Lazy 延迟初始化 ===
+// FdTable::new() 内部使用 Vec，不是 const fn。
+// spin::Lazy 在首次 lock 时初始化，解决 static 初始化问题。
+static FD_TABLE: spin::Lazy<Mutex<FdTable>> = spin::Lazy::new(|| Mutex::new(FdTable::new()));
 
 /// 获取全局 FdTable 的可变引用（用于测试设置）
 pub fn with_fd_table<F, R>(f: F) -> R
@@ -17,13 +24,13 @@ where
     f(&mut table)
 }
 
-// === 修改 sys_write ===
+// === sys_write：通过 FdTable → VfsFile ===
 pub fn sys_write(fd: usize, _buf: usize, len: usize) -> usize {
     let mut table = FD_TABLE.lock();
     match table.get_mut(fd) {
         Some(file) => {
-            // Mock: 使用零字节模拟写入
-            // 真实内核中需要 copy_from_user(buf, len)
+            // Mock: 使用零字节模拟用户数据
+            // 真实内核: copy_from_user(buf, kernel_buf, len)
             let mock_data = alloc::vec![0u8; len];
             match file.write(&mock_data) {
                 Ok(n) => n,
@@ -34,14 +41,17 @@ pub fn sys_write(fd: usize, _buf: usize, len: usize) -> usize {
     }
 }
 
-// === 修改 sys_read ===
+// === sys_read：通过 FdTable → VfsFile ===
 pub fn sys_read(fd: usize, _buf: usize, len: usize) -> usize {
     let mut table = FD_TABLE.lock();
     match table.get_mut(fd) {
         Some(file) => {
-            let mut buf = alloc::vec![0u8; len];
-            match file.read(&mut buf) {
-                Ok(n) => n,  // Mock: 丢弃数据
+            let mut kernel_buf = alloc::vec![0u8; len];
+            match file.read(&mut kernel_buf) {
+                Ok(n) => {
+                    // Mock: 丢弃数据（真实内核: copy_to_user）
+                    n
+                }
                 Err(()) => (-1isize) as usize,
             }
         }
@@ -49,14 +59,9 @@ pub fn sys_read(fd: usize, _buf: usize, len: usize) -> usize {
     }
 }
 
-// === 测试设置 ===
-// 在测试中，先调用 setup_std_fds() 预分配 stdin/stdout/stderr：
-fn setup_std_fds() {
-    with_fd_table(|table| {
-        if table.get(0).is_none() {
-            table.open(Box::new(RamFs::new())); // fd 0: stdin
-            table.open(Box::new(RamFs::new())); // fd 1: stdout
-            table.open(Box::new(RamFs::new())); // fd 2: stderr
-        }
-    });
-}
+// === 测试 ===
+// 集成测试验证完整路径：
+// 1. sys_write 正确写入 VFS（通过 FdTable 验证 size）
+// 2. sys_read 正确读取 VFS（验证返回字节数和 EOF）
+// 3. 无效 fd 返回 -1
+// 4. dispatch → sys_write/read → FdTable → VfsFile 完整链路

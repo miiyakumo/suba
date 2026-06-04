@@ -78,6 +78,13 @@ impl FdTable {
         self.files.get(fd)?.as_deref()
     }
 
+    /// 关闭所有文件描述符，清空表。
+    ///
+    /// 用于测试隔离——确保测试间不共享状态。
+    pub fn clear(&mut self) {
+        self.files.clear();
+    }
+
     /// 获取可变文件引用
     pub fn get_mut(&mut self, fd: usize) -> Option<&mut (dyn VfsFile + '_)> {
         match self.files.get_mut(fd)? {

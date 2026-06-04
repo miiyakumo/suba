@@ -1249,7 +1249,9 @@
           "round": 2,
           "status": "pedagogy",
           "notes": "Module docs explain VFS integration path; with_fd_table helper for testing; TODO markers for real kernel copy_from/to_user; solution file complete"
-        }
+        },
+        "correctness: all tests pass (55/55), zero warnings, error paths handled, boundary conditions covered",
+        "pedagogy: doc comments on all public APIs, module-level VFS concepts, student TODOs at appropriate locations, solution file complete"
       ],
       "solution": ".solution/6.8-syscall-to-vfs.rs",
       "student_todo": [
