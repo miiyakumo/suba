@@ -20,6 +20,7 @@
 pub mod clint;
 pub mod plic;
 pub mod uart;
+pub mod uart_file;
 
 /// UART Console 类型别名
 ///

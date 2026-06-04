@@ -55,7 +55,28 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use suba_kernel::arch::CpuOps;
 use suba_kernel::driver::Console;
 use suba_kernel::mm::heap;
-use suba_kernel::task::{RoundRobinScheduler, TaskManager};
+use suba_kernel::task::{RoundRobinScheduler, TaskManager, TaskState};
+
+// ---------------------------------------------------------------------------
+// 全局任务管理器和调度器
+// ---------------------------------------------------------------------------
+
+/// 当前正在运行的任务 PID。
+///
+/// 用于在 trap 处理中识别当前任务（如 exit 时标记任务状态）。
+static CURRENT_PID: AtomicUsize = AtomicUsize::new(0);
+
+/// 全局任务管理器（在 rust_main 中初始化）。
+///
+/// ## 教学概念：为什么需要全局任务管理器？
+///
+/// trap_handler 在中断上下文中执行，无法通过参数获取任务管理器。
+/// 使用全局静态变量是内核中常见的做法。
+/// spin::Once 保证线程安全的一次性初始化。
+static TASK_MANAGER: spin::Once<spin::Mutex<TaskManager>> = spin::Once::new();
+
+/// 全局调度器（在 rust_main 中初始化）。
+static SCHEDULER: spin::Once<spin::Mutex<RoundRobinScheduler>> = spin::Once::new();
 
 // ---------------------------------------------------------------------------
 // 全局堆分配器（Bump Allocator）
@@ -154,6 +175,114 @@ pub fn uart_putchar(c: u8) {
 /// 使用 `UartConsole` 的 `Console` trait 实现，包含 `\n` → `\r\n` 转换。
 pub fn uart_puts(s: &str) {
     driver::uart::UartConsole::puts(s);
+}
+
+// ---------------------------------------------------------------------------
+// 系统调用后处理：exit 路径
+// ---------------------------------------------------------------------------
+
+/// 系统调用后处理回调 — 处理 exit 系统调用。
+///
+/// 当用户程序调用 exit (SYS_EXIT) 时，此函数在 dispatch 返回后被调用。
+/// 它完成 exit 的后半段工作：
+/// 1. 将当前任务状态设为 Exited
+/// 2. 调度下一个任务（或关机）
+///
+/// ## 教学概念：exit 的完整路径
+///
+/// ```text
+/// 用户程序                  内核
+/// ┌──────────┐            ┌──────────────────┐
+/// │ li a7, 93│  ecall     │ trap_entry       │
+/// │ li a0, 0 │ ─────────► │ trap_handler     │
+/// │ ecall    │            │   dispatch(tf)   │
+/// │          │            │   → sys_exit(0)  │
+/// │ (不再执行)│            │   after_syscall  │
+/// └──────────┘            │   → mark Exited  │
+///                         │   → schedule()   │
+///                         │   → 关机或切换    │
+///                         └──────────────────┘
+/// ```
+fn after_syscall_exit(tf: &mut arch::riscv64::TrapFrame) {
+    use suba_kernel::syscall::number::SYS_EXIT;
+
+    // 检查是否是 exit 系统调用（a7 = SYS_EXIT = 93）
+    if tf.x17_a7 != SYS_EXIT {
+        return;
+    }
+
+    let exit_code = tf.x10_a0 as i32;
+    let pid = CURRENT_PID.load(Ordering::Relaxed);
+
+    uart_puts("[exit] PID ");
+    uart_putchar(b'0' + pid as u8);
+    uart_puts(" exited with code ");
+    // 简单打印退出码（仅支持 0-9）
+    if exit_code >= 0 && exit_code <= 9 {
+        uart_putchar(b'0' + exit_code as u8);
+    } else {
+        uart_putchar(b'?');
+    }
+    uart_putchar(b'\n');
+
+    // 标记当前任务为 Exited
+    if let Some(tm) = TASK_MANAGER.get() {
+        let tm = tm.lock();
+        if let Some(task) = tm.get_task(pid) {
+            let mut task = task.lock();
+            task.state = TaskState::Exited;
+            task.exit_code = exit_code;
+        }
+    }
+
+    // 调度下一个任务
+    schedule();
+}
+
+/// 调度器 — 选择下一个任务并切换。
+///
+/// 如果有其他就绪任务，切换到它。
+/// 如果没有就绪任务，关机。
+///
+/// ## 教学概念：调度器的工作方式
+///
+/// 调度器从就绪队列中取出下一个任务，执行上下文切换。
+/// 当前实现是简化的：如果没有就绪任务就关机。
+/// 完整实现中，idle 任务会永远运行（等待新任务到来）。
+fn schedule() -> ! {
+    if let Some(sched) = SCHEDULER.get() {
+        let mut sched = sched.lock();
+        if let Some(next_task) = sched.next() {
+            let mut task = next_task.lock();
+            task.state = TaskState::Running;
+            let pid = task.pid;
+            CURRENT_PID.store(pid, Ordering::Relaxed);
+
+            uart_puts("[sched] switching to PID ");
+            uart_putchar(b'0' + pid as u8);
+            uart_putchar(b'\n');
+
+            // TODO(student): 实现真正的上下文切换
+            // 当前简化实现：如果是 idle 任务，进入 idle 循环
+            // 否则，进入 idle 循环（后续 feature 实现完整切换）
+            if pid == 1 {
+                // idle 任务
+                drop(task);
+                drop(sched);
+                idle_loop();
+            } else {
+                // 用户任务：需要切换页表并恢复上下文
+                // 当前简化：进入 idle 循环
+                drop(task);
+                drop(sched);
+                idle_loop();
+            }
+        }
+    }
+
+    // 没有就绪任务，关机
+    uart_puts("[sched] no ready tasks, shutting down\n");
+    power::shutdown(false)
 }
 
 // ===========================================================================
@@ -294,21 +423,40 @@ pub extern "C" fn rust_main() -> ! {
     // ================================================================
     // TaskManager 管理所有任务的创建和查找
     // RoundRobinScheduler 实现简单的轮转调度
-    let mut tm = TaskManager::new();
-    let mut sched = RoundRobinScheduler::new();
+    //
+    // ## 教学概念：全局任务管理器
+    //
+    // 使用 spin::Once 将 TaskManager 和 Scheduler 存储为全局静态变量。
+    // 这样 trap_handler 中的系统调用处理可以访问任务管理器
+    // （例如 exit 需要标记任务状态为 Exited）。
+    TASK_MANAGER.call_once(|| spin::Mutex::new(TaskManager::new()));
+    SCHEDULER.call_once(|| spin::Mutex::new(RoundRobinScheduler::new()));
 
     // 创建 idle 任务（PID=1）
     // idle 任务在无其他可运行任务时执行，使用 wfi 等待中断
     unsafe extern "C" {
         fn boot_stack_top();
     }
-    let idle_task = tm.create_task(
-        idle_loop as usize,
-        boot_stack_top as usize,
-        0, // 无用户栈
-    );
-    sched.enqueue(idle_task);
+    let idle_task = {
+        let mut tm = TASK_MANAGER.get().unwrap().lock();
+        tm.create_task(
+            idle_loop as usize,
+            boot_stack_top as usize,
+            0, // 无用户栈
+        )
+    };
+    {
+        let mut sched = SCHEDULER.get().unwrap().lock();
+        sched.enqueue(idle_task);
+    }
     uart_puts("[boot] task system ready (idle task PID=1)\n");
+
+    // 注册系统调用后处理回调（exit 路径）
+    // SAFETY: 中断尚未在此代码路径中触发（Step 9 之前）
+    unsafe {
+        arch::riscv64::init_exit_handler(after_syscall_exit);
+    }
+    uart_puts("[boot] exit handler registered\n");
 
     // ================================================================
     // Step 9: 加载 init 程序到用户地址空间
@@ -372,6 +520,22 @@ pub extern "C" fn rust_main() -> ! {
             //
             // 这样，无论用户态的 sp 是什么值，内核都能正确保存上下文。
             uart_puts("[boot] entering user mode (sret)...\n");
+
+            // 创建 init 任务并注册到任务管理器
+            // （用于 exit 时标记任务状态）
+            let init_task = {
+                let mut tm = TASK_MANAGER.get().unwrap().lock();
+                tm.create_task(entry, kernel_sp, stack_top)
+            };
+            let init_pid = {
+                let task = init_task.lock();
+                task.pid
+            };
+            CURRENT_PID.store(init_pid, Ordering::Relaxed);
+            uart_puts("[boot] init task PID=");
+            uart_putchar(b'0' + init_pid as u8);
+            uart_putchar(b'\n');
+
             // entry 和 stack_top 由 ELF 加载器验证，
             // kernel_sp 指向有效的内核栈顶
             arch::riscv64::enter_user_mode(entry, stack_top, kernel_sp, 0);
@@ -399,11 +563,14 @@ pub extern "C" fn rust_main() -> ! {
     uart_puts("suba: boot complete\n");
     uart_puts("[boot] starting scheduler...\n");
 
-    if let Some(task) = sched.next() {
-        let t = task.lock();
-        uart_puts("[boot] scheduled PID ");
-        uart_putchar(b'0' + t.pid as u8);
-        uart_putchar(b'\n');
+    if let Some(sched) = SCHEDULER.get() {
+        let mut sched = sched.lock();
+        if let Some(task) = sched.next() {
+            let t = task.lock();
+            uart_puts("[boot] scheduled PID ");
+            uart_putchar(b'0' + t.pid as u8);
+            uart_putchar(b'\n');
+        }
     }
 
     // TODO(student): 实现真正的上下文切换

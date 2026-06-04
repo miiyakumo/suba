@@ -199,6 +199,15 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
                 // └──────────┘              └──────────────────┘
                 // ```
                 suba_kernel::syscall::dispatch(tf);
+
+                // 系统调用后处理回调
+                // 用于处理需要硬件后端参与的系统调用（如 exit 触发调度）
+                // SAFETY: AFTER_SYSCALL 在 init_exit_handler 中初始化
+                unsafe {
+                    if let Some(callback) = AFTER_SYSCALL {
+                        callback(tf);
+                    }
+                }
             }
             12 => {
                 // 指令页错误 (Instruction page fault)
@@ -243,6 +252,41 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
     // SAFETY: trap_frame 指向有效的 TrapFrame，由 trap.S 保证
     unsafe {
         trap_return(trap_frame);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 系统调用后处理回调
+// ---------------------------------------------------------------------------
+
+/// 系统调用后处理回调函数指针。
+///
+/// 在 trap_handler 处理完系统调用后调用，用于处理需要硬件后端参与的操作。
+/// 例如：exit 系统调用需要触发任务调度和上下文切换。
+///
+/// ## 教学概念：回调模式
+///
+/// 内核核心（kernel crate）不应该直接依赖硬件后端（os crate）。
+/// 通过回调模式，硬件后端可以注册自己的处理逻辑，
+/// 而不需要修改内核核心代码。
+///
+/// 这体现了操作系统的分层架构：
+/// - 内核核心：提供 syscall dispatch、task 管理等抽象
+/// - 硬件后端：实现具体的 trap 处理、上下文切换等
+static mut AFTER_SYSCALL: Option<fn(&mut TrapFrame)> = None;
+
+/// 注册系统调用后处理回调。
+///
+/// 在 rust_main 中初始化任务系统后调用，
+/// 注册 exit 等需要调度器参与的系统调用的处理逻辑。
+///
+/// # Safety
+///
+/// 必须在中断处理之前调用（单线程初始化阶段）。
+pub unsafe fn init_exit_handler(callback: fn(&mut TrapFrame)) {
+    // SAFETY: 单线程初始化阶段，中断尚未启用
+    unsafe {
+        AFTER_SYSCALL = Some(callback);
     }
 }
 
