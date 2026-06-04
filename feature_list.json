@@ -1340,7 +1340,8 @@
       "review_status": "approved",
       "review_log": [
         "correctness: cargo build riscv64 零通过零警告, rust_main 清零 BSS+UART 输出+关机, entry.S 调用链正确",
-        "pedagogy: 模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整"
+        "pedagogy: 模块级教学注释完整, 公开 API 有文档注释, .solution/ 参考实现完整",
+        "Push failed: could not read Username for GitHub (2026-06-04)"
       ],
       "solution": ".solution/7.3-rust-main.rs",
       "student_todo": [
@@ -1372,8 +1373,8 @@
       "name": "实现 switch.S 上下文切换",
       "description": "在 os/src/arch/riscv64/switch.S 中实现上下文切换汇编：保存 ra/sp/s0-s11 到 old，从 new 恢复 ra/sp/s0-s11，ret。共 28 条指令。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/7.5-switch.S",
       "student_todo": [

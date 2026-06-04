@@ -19,6 +19,9 @@
 
 use suba_kernel::arch::Context;
 
+// 包含上下文切换汇编代码
+core::arch::global_asm!(include_str!("switch.S"));
+
 // RISC-V 上下文切换的 extern 汇编入口
 // 在 switch.S 中实现，保存 callee-saved 寄存器到 old_ctx，
 // 从 new_ctx 恢复寄存器并跳转。
