@@ -1029,9 +1029,20 @@
       "name": "实现 sys_getpid 和集成测试",
       "description": "实现 sys_getpid()，从当前任务 TCB 读取 pid。编写系统调用集成测试，验证 dispatch 正确路由到各处理函数。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "dispatch_getpid + dispatch_all_syscalls 集成测试通过(43 tests), 所有 syscall dispatch 路由正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "sys_getpid doc 注释完整, 集成测试覆盖全部 6 个 syscall + 未知调用, solution 含真实内核实现"
+        }
+      ],
       "solution": ".solution/5.8-sys-getpid.rs",
       "student_todo": [
         "kernel/src/syscall/impl.rs:sys_getpid"

@@ -103,4 +103,50 @@ mod tests {
         // Mock: 返回固定的堆顶地址
         assert_eq!(frame.ret, 0x8080_0000);
     }
+
+    #[test]
+    fn dispatch_getpid() {
+        let mut frame = MockTrapFrame::new();
+        frame.syscall_no = number::SYS_GETPID;
+        dispatch(&mut frame);
+        // Mock: 返回固定 PID = 1
+        assert_eq!(frame.ret, 1);
+    }
+
+    /// 集成测试：验证所有已定义的系统调用号都能正确路由
+    ///
+    /// 这个测试确保 dispatch 不会遗漏任何系统调用，
+    /// 且未知调用始终返回 -1。
+    #[test]
+    fn dispatch_all_syscalls() {
+        // 已知系统调用：设置合理参数，验证不会返回 -1（即被正确路由）
+        let test_cases: &[(usize, &str, [usize; 6])] = &[
+            (number::SYS_WRITE, "write",   [1, 0x8000_0000, 10, 0, 0, 0]), // fd=1
+            (number::SYS_READ,  "read",    [0, 0x8000_0000, 10, 0, 0, 0]), // fd=0
+            (number::SYS_EXIT,  "exit",    [0, 0, 0, 0, 0, 0]),
+            (number::SYS_YIELD, "yield",   [0, 0, 0, 0, 0, 0]),
+            (number::SYS_SBRK,  "sbrk",    [4096, 0, 0, 0, 0, 0]),
+            (number::SYS_GETPID,"getpid",  [0, 0, 0, 0, 0, 0]),
+        ];
+
+        for &(no, name, args) in test_cases {
+            let mut frame = MockTrapFrame::new();
+            frame.syscall_no = no;
+            frame.args = args;
+            dispatch(&mut frame);
+            assert_ne!(
+                frame.ret,
+                (-1isize) as usize,
+                "syscall {} ({}) was treated as unknown",
+                name,
+                no
+            );
+        }
+
+        // 未知系统调用：验证返回 -1
+        let mut frame = MockTrapFrame::new();
+        frame.syscall_no = 0; // 不存在的系统调用号
+        dispatch(&mut frame);
+        assert_eq!(frame.ret, (-1isize) as usize);
+    }
 }

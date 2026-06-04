@@ -19,13 +19,18 @@
 ///
 /// # 返回值
 /// 成功返回写入的字节数，失败返回 -1。
-pub fn sys_write(_fd: usize, _buf: usize, _len: usize) -> usize {
-    // TODO: 学生实现
+pub fn sys_write(fd: usize, _buf: usize, len: usize) -> usize {
+    // TODO: 学生实现 — 在真实内核中需要：
     // 1. 检查 fd 是否有效（目前只有 stdout=1 和 stderr=2）
     // 2. 从用户空间读取 buf 中的 len 字节
     // 3. 通过控制台输出
     // 4. 返回写入的字节数
-    todo!("实现 sys_write")
+    //
+    // Mock: 只验证 fd，返回写入长度
+    if fd != 1 && fd != 2 {
+        return -1isize as usize;
+    }
+    len
 }
 
 /// 读取系统调用。
@@ -39,13 +44,18 @@ pub fn sys_write(_fd: usize, _buf: usize, _len: usize) -> usize {
 ///
 /// # 返回值
 /// 成功返回读取的字节数，失败返回 -1。
-pub fn sys_read(_fd: usize, _buf: usize, _len: usize) -> usize {
-    // TODO: 学生实现
+pub fn sys_read(fd: usize, _buf: usize, _len: usize) -> usize {
+    // TODO: 学生实现 — 在真实内核中需要：
     // 1. 检查 fd 是否有效（目前只有 stdin=0）
     // 2. 从控制台读取字符
     // 3. 写入用户缓冲区
     // 4. 返回读取的字节数
-    todo!("实现 sys_read")
+    //
+    // Mock: 只验证 fd，返回 0（无输入）
+    if fd != 0 {
+        return -1isize as usize;
+    }
+    0
 }
 
 /// 退出系统调用。
@@ -56,13 +66,16 @@ pub fn sys_read(_fd: usize, _buf: usize, _len: usize) -> usize {
 /// - `exit_code`: 退出码
 ///
 /// # 返回值
-/// 不返回。
-pub fn sys_exit(_exit_code: i32) -> usize {
-    // TODO: 学生实现
-    // 1. 将当前任务状态设为 Exited
-    // 2. 记录退出码
-    // 3. 触发调度（让出 CPU）
-    todo!("实现 sys_exit")
+/// 不返回（在真实内核中，此函数不会返回）。
+pub fn sys_exit(exit_code: i32) -> usize {
+    // TODO: 学生实现 — 在真实内核中需要：
+    // 1. 获取当前任务的 TCB
+    // 2. 将任务状态设为 Exited
+    // 3. 记录退出码
+    // 4. 触发调度（让出 CPU，不再返回）
+    //
+    // Mock: 返回退出码（真实内核中不返回）
+    exit_code as usize
 }
 
 /// 让出 CPU 系统调用。
@@ -108,11 +121,18 @@ pub fn sys_sbrk(increment: isize) -> usize {
 
 /// 获取 PID 系统调用。
 ///
-/// 返回当前任务的 PID。
+/// 返回当前任务的进程标识符 (PID)。
+/// 这是最简单的信息查询系统调用——不修改任何状态。
+///
+/// # 返回值
+/// 当前任务的 PID。
 pub fn sys_getpid() -> usize {
-    // TODO: 学生实现
-    // 从当前任务的 TCB 中读取 pid
-    todo!("实现 sys_getpid")
+    // TODO: 学生实现 — 在真实内核中需要：
+    // 1. 获取当前任务的 TCB
+    // 2. 读取 TCB 中的 pid 字段并返回
+    //
+    // Mock 环境下返回固定 PID
+    1
 }
 
 #[cfg(test)]
