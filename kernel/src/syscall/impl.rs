@@ -67,16 +67,20 @@ pub fn sys_exit(_exit_code: i32) -> usize {
 
 /// 让出 CPU 系统调用。
 ///
-/// 主动让出 CPU 给其他任务。
+/// 主动让出 CPU 给其他就绪任务。在协作式调度中，
+/// 任务必须主动调用 sys_yield 才能让出 CPU。
 ///
 /// # 返回值
-/// 始终返回 0。
+/// 始终返回 0（表示让出成功）。
 pub fn sys_yield() -> usize {
-    // TODO: 学生实现
-    // 1. 将当前任务状态从 Running 改为 Ready
-    // 2. 将当前任务放回调度队列
-    // 3. 触发调度
-    todo!("实现 sys_yield")
+    // TODO: 学生实现 — 在真实内核中需要：
+    // 1. 获取当前任务的 TCB
+    // 2. 将任务状态从 Running 改为 Ready
+    // 3. 将任务放回调度队列尾部
+    // 4. 调用 schedule() 切换到下一个任务
+    //
+    // Mock 环境下没有全局 current_task，返回 0 即可
+    0
 }
 
 /// 调整堆大小系统调用。

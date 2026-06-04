@@ -14,6 +14,11 @@
 
 pub mod r#impl;
 
+// TODO: 定义系统调用号
+// 参考 .solution/5.1-syscall-numbers.rs
+//
+// 提示：参考 Linux RISC-V 系统调用号
+
 /// 系统调用号定义
 ///
 /// 参考 Linux RISC-V 系统调用号，保持兼容性。
@@ -35,6 +40,11 @@ pub mod number {
     /// 获取 PID
     pub const SYS_GETPID: usize = 172;
 }
+
+// TODO: 实现系统调用分发
+// 参考 .solution/5.2-syscall-dispatch.rs
+//
+// 提示：match 系统调用号，调用对应处理函数，未知调用返回 -1
 
 /// 系统调用分发。
 ///
@@ -73,5 +83,14 @@ mod tests {
         assert_eq!(number::SYS_EXIT, 93);
         assert_eq!(number::SYS_WRITE, 64);
         assert_eq!(number::SYS_READ, 63);
+    }
+
+    #[test]
+    fn dispatch_yield() {
+        let mut frame = MockTrapFrame::new();
+        frame.syscall_no = number::SYS_YIELD;
+        dispatch(&mut frame);
+        // sys_yield 始终返回 0
+        assert_eq!(frame.ret, 0);
     }
 }

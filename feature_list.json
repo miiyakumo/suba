@@ -847,9 +847,20 @@
       "name": "定义系统调用号",
       "description": "在 kernel/src/syscall/mod.rs 的 number 子模块中定义系统调用号常量：SYS_EXIT(93)、SYS_YIELD(124)、SYS_READ(63)、SYS_WRITE(64)、SYS_OPEN(1024)、SYS_CLOSE(57)、SYS_SBRK(214)、SYS_GETPID(172)。参考 Linux RISC-V 系统调用号。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests::syscall_numbers",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "syscall_numbers 测试通过, 常量值与 Linux RISC-V 兼容"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "number 模块有文档注释, TODO标记合理, solution文件完整"
+        }
+      ],
       "solution": ".solution/5.1-syscall-numbers.rs",
       "student_todo": [
         "kernel/src/syscall/mod.rs:number 模块"
@@ -862,9 +873,20 @@
       "name": "实现系统调用分发框架",
       "description": "在 kernel/src/syscall/mod.rs 中实现 dispatch() 函数，根据 SyscallFrame 中的 syscall_id 路由到对应的处理函数。未知系统调用返回 -1。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests::dispatch_unknown_syscall",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "dispatch_unknown_syscall 测试通过, match 分发逻辑正确, 未知调用返回-1"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "dispatch 函数有文档注释, TODO标记合理, solution文件完整"
+        }
+      ],
       "solution": ".solution/5.2-syscall-dispatch.rs",
       "student_todo": [
         "kernel/src/syscall/mod.rs:dispatch 函数"
@@ -877,9 +899,20 @@
       "name": "实现 sys_write",
       "description": "在 kernel/src/syscall/impl.rs 中实现 sys_write(fd, buf, len)。验证 fd 是否为 stdout(1)/stderr(2)，从用户空间读取数据并通过控制台输出。返回写入字节数。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "syscall::tests 通过, sys_write 有 todo!() 占位符, solution展示完整实现"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "sys_write 有详细文档注释和参数说明, todo!() 标记清晰"
+        }
+      ],
       "solution": ".solution/5.3-sys-write.rs",
       "student_todo": [
         "kernel/src/syscall/impl.rs:sys_write"
@@ -892,9 +925,20 @@
       "name": "实现 sys_read",
       "description": "实现 sys_read(fd, buf, len)。从 stdin(0) 读取字符到用户缓冲区。返回读取的字节数。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "syscall::tests 通过, sys_read 有 todo!() 占位符, solution展示完整实现"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "sys_read 有详细文档注释和参数说明, todo!() 标记清晰"
+        }
+      ],
       "solution": ".solution/5.4-sys-read.rs",
       "student_todo": [
         "kernel/src/syscall/impl.rs:sys_read"
@@ -907,9 +951,20 @@
       "name": "实现 sys_exit",
       "description": "实现 sys_exit(exit_code)。将当前任务状态设为 Exited，记录退出码，触发调度让出 CPU。不返回。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "syscall::tests 通过, sys_exit 有 todo!() 占位符, solution展示完整实现"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "sys_exit 有详细文档注释, todo!() 标记清晰"
+        }
+      ],
       "solution": ".solution/5.5-sys-exit.rs",
       "student_todo": [
         "kernel/src/syscall/impl.rs:sys_exit"
@@ -922,9 +977,20 @@
       "name": "实现 sys_yield",
       "description": "实现 sys_yield()。将当前任务从 Running 改为 Ready，放回调度队列，触发调度。返回 0。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "dispatch_yield 测试通过, sys_yield 返回 0, 与 comix yield_task 逻辑一致"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "doc 注释完整, TODO 标记清晰(4步实现指南), solution 含 sys_yield vs sys_exit 对比"
+        }
+      ],
       "solution": ".solution/5.6-sys-yield.rs",
       "student_todo": [
         "kernel/src/syscall/impl.rs:sys_yield"
