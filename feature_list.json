@@ -1546,8 +1546,8 @@
       "name": "实现 SV39 页表映射",
       "description": "实现 SV39 页表的 map_page()：分配页表页 → 逐级创建页表项 → 设置最终 PTE 的 PPN 和权限标志。处理大页（2MB/1GB）的情况。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/8.3-sv39-map.rs",
       "student_todo": [
