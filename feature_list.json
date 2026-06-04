@@ -1932,7 +1932,7 @@
       "name": "实现 RISC-V Arch trait 完整实现",
       "description": "为 Riscv64 完整实现 Arch trait：context_switch 调用 switch.S、copy_from_user/to_user 使用页表翻译后复制。整合所有 RISC-V 后端组件。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/10.8-riscv-arch-impl.rs",

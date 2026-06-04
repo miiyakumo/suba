@@ -1322,3 +1322,263 @@ pub fn load_elf_to_space(
 
     Ok((user_space, entry as usize, user_stack_top))
 }
+
+// ============================================================================
+// Riscv64Arch — Arch trait 完整实现
+// ============================================================================
+
+/// RISC-V 64 位架构实现
+///
+/// 实现 kernel crate 的 [`suba_kernel::arch::Arch`] trait，
+/// 整合所有 RISC-V 后端组件：CPU 操作、内存管理、上下文切换、用户内存复制。
+///
+/// ## 教学概念：Arch trait 的角色
+///
+/// `Arch` 是内核与硬件之间的最高层抽象。内核其余代码通过 `Arch` trait：
+/// - 切换任务上下文（`context_switch`）
+/// - 复制用户空间数据（`copy_from_user` / `copy_to_user`）
+/// - 获取架构信息（`name`, `cpu_count`）
+///
+/// 这使得内核核心代码完全与具体架构解耦，
+/// 移植到新架构只需实现 `Arch` trait。
+pub struct Riscv64Arch;
+
+impl suba_kernel::arch::CpuOps for Riscv64Arch {
+    fn id() -> usize {
+        // SAFETY: 在多核系统中读取 mhartid 寄存器
+        // 当前单核实现始终返回 0
+        0
+    }
+
+    fn halt() -> ! {
+        loop {
+            // SAFETY: wfi 是特权指令，等待中断唤醒
+            unsafe { core::arch::asm!("wfi", options(nomem, nostack)) }
+        }
+    }
+
+    fn enable_interrupts() {
+        // SAFETY: 设置 sstatus.SIE = 1
+        unsafe { core::arch::asm!("csrsi sstatus, 0x2", options(nomem, nostack)) }
+    }
+
+    fn disable_interrupts() -> usize {
+        // 读取当前 sstatus 并禁用中断
+        let old: usize;
+        // SAFETY: 原子地读取 sstatus 并清除 SIE 位
+        unsafe {
+            core::arch::asm!(
+                "csrrci {}, sstatus, 0x2",
+                out(reg) old,
+                options(nomem, nostack),
+            );
+        }
+        old & 0x2 // 返回旧的 SIE 位
+    }
+
+    fn interrupts_enabled() -> bool {
+        let sstatus: usize;
+        // SAFETY: sstatus 是只读 CSR
+        unsafe {
+            core::arch::asm!("csrr {}, sstatus", out(reg) sstatus, options(nomem, nostack));
+        }
+        sstatus & 0x2 != 0
+    }
+
+    unsafe fn restore_interrupt_state(flags: usize) {
+        if flags != 0 {
+            // SAFETY: 恢复中断状态
+            unsafe { core::arch::asm!("csrsi sstatus, 0x2", options(nomem, nostack)) }
+        } else {
+            unsafe { core::arch::asm!("csrci sstatus, 0x2", options(nomem, nostack)) }
+        }
+    }
+}
+
+impl suba_kernel::arch::MmOps for Riscv64Arch {
+    unsafe fn translate_va(va: suba_kernel::arch::VA) -> Option<suba_kernel::arch::PA> {
+        let satp = read_satp();
+        let root_ppn = satp & 0x0FFF_FFFF_FFFF;
+        match page::translate_va(va.as_usize(), root_ppn, page::phys_read_u64) {
+            Ok(pa) => Some(suba_kernel::arch::PA::new(pa)),
+            Err(_) => None,
+        }
+    }
+
+    fn flush_tlb() {
+        flush_tlb_all();
+    }
+
+    fn flush_tlb_addr(addr: usize) {
+        flush_tlb_addr(addr);
+    }
+
+    fn current_page_table() -> suba_kernel::arch::PA {
+        let satp = read_satp();
+        let root_ppn = satp & 0x0FFF_FFFF_FFFF;
+        suba_kernel::arch::PA::new(root_ppn << 12)
+    }
+
+    unsafe fn switch_page_table(pt_root: suba_kernel::arch::PA) {
+        let root_ppn = pt_root.as_usize() >> 12;
+        // SAFETY: 调用者确保 pt_root 指向有效页表
+        unsafe {
+            switch_page_table(root_ppn);
+        }
+    }
+}
+
+impl suba_kernel::arch::Arch for Riscv64Arch {
+    type TrapFrame = TrapFrame;
+
+    fn name() -> &'static str {
+        "riscv64"
+    }
+
+    fn cpu_count() -> usize {
+        1 // 当前单核实现
+    }
+
+    /// 上下文切换
+    ///
+    /// 调用 switch.S 中的汇编代码，保存 callee-saved 寄存器到 old，
+    /// 从 new 恢复寄存器并跳转到 new.ra。
+    ///
+    /// ## 教学概念：自愿切换 vs 强制切换
+    ///
+    /// - **自愿切换** (context_switch): 任务主动让出 CPU（如 sys_yield）
+    ///   只需保存 callee-saved 寄存器
+    /// - **强制切换** (trap_return): 时钟中断抢占
+    ///   需要保存全部寄存器（TrapFrame）
+    ///
+    /// # Safety
+    ///
+    /// `old` 和 `new` 必须指向有效的、正确对齐的 Context 结构体。
+    unsafe fn context_switch(old: *mut suba_kernel::arch::Context, new: *const suba_kernel::arch::Context) {
+        // SAFETY: 调用者确保 old/new 指向有效的 Context
+        unsafe {
+            switch(old, new);
+        }
+    }
+
+    /// 从用户空间复制数据到内核空间
+    ///
+    /// 通过页表翻译用户虚拟地址，然后通过内核身份映射复制数据。
+    ///
+    /// ## 教学概念：用户/内核内存隔离
+    ///
+    /// 用户态和内核态使用不同的页表。内核不能直接解引用用户虚拟地址，
+    /// 必须先通过页表翻译为物理地址，再通过内核的身份映射访问。
+    ///
+    /// ```text
+    /// 用户 VA → [页表翻译] → 物理地址 → [内核身份映射] → 内核访问
+    /// ```
+    ///
+    /// # Safety
+    ///
+    /// - `src` 必须是有效的用户虚拟地址
+    /// - `dst` 必须指向足够大的内核缓冲区
+    /// - 当前页表必须是用户页表（satp 指向用户页表）
+    unsafe fn copy_from_user(src: usize, dst: *mut u8, len: usize) -> Result<(), ()> {
+        if len == 0 {
+            return Ok(());
+        }
+        if dst.is_null() {
+            return Err(());
+        }
+
+        // 逐页复制：翻译每一页的用户 VA → PA，然后通过身份映射复制
+        let mut remaining = len;
+        let mut user_va = src;
+        let mut kernel_dst = dst;
+
+        while remaining > 0 {
+            // 计算当前页内的偏移和可复制长度
+            let page_offset = user_va & (page::PAGE_SIZE - 1);
+            let copy_len = core::cmp::min(remaining, page::PAGE_SIZE - page_offset);
+
+            // 翻译用户虚拟地址到物理地址
+            // SAFETY: 我们正在处理用户地址空间
+            let user_pa = translate_user_va(user_va)?;
+
+            // 通过内核身份映射复制数据
+            // SAFETY: user_pa 是有效的物理地址（页表翻译成功），
+            // kernel_dst 是调用者确保有效的内核缓冲区
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    user_pa as *const u8,
+                    kernel_dst,
+                    copy_len,
+                );
+            }
+
+            remaining -= copy_len;
+            user_va += copy_len;
+            // SAFETY: kernel_dst 在有效缓冲区内推进
+            kernel_dst = unsafe { kernel_dst.add(copy_len) };
+        }
+
+        Ok(())
+    }
+
+    /// 从内核空间复制数据到用户空间
+    ///
+    /// 与 `copy_from_user` 对称：翻译用户 VA → PA，通过身份映射写入。
+    ///
+    /// # Safety
+    ///
+    /// - `dst` 必须是有效的用户虚拟地址（已映射且可写）
+    /// - `src` 必须指向有效的内核数据
+    /// - 当前页表必须是用户页表
+    unsafe fn copy_to_user(src: *const u8, dst: usize, len: usize) -> Result<(), ()> {
+        if len == 0 {
+            return Ok(());
+        }
+        if src.is_null() {
+            return Err(());
+        }
+
+        let mut remaining = len;
+        let mut user_va = dst;
+        let mut kernel_src = src;
+
+        while remaining > 0 {
+            let page_offset = user_va & (page::PAGE_SIZE - 1);
+            let copy_len = core::cmp::min(remaining, page::PAGE_SIZE - page_offset);
+
+            // 翻译用户虚拟地址到物理地址
+            let user_pa = translate_user_va(user_va)?;
+
+            // 通过内核身份映射写入数据
+            // SAFETY: user_pa 是有效的物理地址，kernel_src 是有效的内核数据
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    kernel_src,
+                    user_pa as *mut u8,
+                    copy_len,
+                );
+            }
+
+            remaining -= copy_len;
+            user_va += copy_len;
+            // SAFETY: kernel_src 在有效数据范围内推进
+            kernel_src = unsafe { kernel_src.add(copy_len) };
+        }
+
+        Ok(())
+    }
+}
+
+/// 翻译用户虚拟地址到物理地址
+///
+/// 使用当前 satp 寄存器中的页表进行 SV39 三级页表遍历。
+/// 返回物理地址，供内核身份映射使用。
+///
+/// # Safety
+///
+/// 当前 satp 必须指向包含该用户地址映射的页表。
+fn translate_user_va(va: usize) -> Result<usize, ()> {
+    let satp = read_satp();
+    let root_ppn = satp & 0x0FFF_FFFF_FFFF;
+    page::translate_va(va, root_ppn, page::phys_read_u64).map_err(|_| ())
+}
