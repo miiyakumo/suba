@@ -453,6 +453,67 @@ pub fn translate_va(
 }
 
 // ============================================================================
+// SV39 页表解映射
+// ============================================================================
+
+/// SV39 页表解映射：清除虚拟页的映射
+///
+/// 遍历三级页表找到叶子 PTE，将其清零。
+///
+/// ## 教学概念：解映射与页表回收
+///
+/// 解映射一个虚拟页只需要将叶子 PTE 清零（V=0）。
+/// 之后对该虚拟地址的访问会触发页错误。
+///
+/// 注意：简单实现不清除中间级别的页表页（即使它们变空了）。
+/// 生产级 OS 会检查中间页表是否全空，如果是则回收该页。
+///
+/// # 参数
+/// - `va`: 虚拟地址（必须页对齐）
+/// - `root_ppn`: 根页表的物理页号
+/// - `phys_read`: 从物理地址读取 u64 的函数
+/// - `phys_write`: 写入 u64 到物理地址的函数
+///
+/// # 返回
+/// - `Ok(())`: 解映射成功
+/// - `Err(e)`: 解映射失败
+pub fn unmap_page(
+    va: usize,
+    root_ppn: usize,
+    phys_read: fn(usize) -> Result<u64, ()>,
+    phys_write: fn(usize, u64) -> Result<(), ()>,
+) -> Result<(), MapError> {
+    debug_assert!(va % PAGE_SIZE == 0, "va must be page-aligned");
+
+    let vpn = va_to_vpn(va);
+    let mut current_ppn = root_ppn;
+
+    // 从 Level 2 遍历到 Level 0
+    for level in (0..PAGE_TABLE_LEVELS).rev() {
+        let idx = vpn_level_index(vpn, level);
+        let pte_addr = current_ppn * PAGE_SIZE + idx * 8;
+
+        let pte_val = phys_read(pte_addr).map_err(|_| MapError::PhysAccessFailed)?;
+        let pte = PageTableEntry::from_bits(pte_val);
+
+        if !pte.is_valid() {
+            return Err(MapError::NotMapped);
+        }
+
+        if level == 0 {
+            // 叶子 PTE：清零以解除映射
+            phys_write(pte_addr, 0).map_err(|_| MapError::PhysAccessFailed)?;
+            return Ok(());
+        }
+
+        // 中间级别：继续下一级
+        current_ppn = pte.ppn() as usize;
+    }
+
+    Err(MapError::NotMapped)
+}
+
+// ============================================================================
 // SV39 页表映射
 // ============================================================================
 
@@ -463,6 +524,8 @@ pub enum MapError {
     FrameAllocFailed,
     /// 地址已被映射
     AlreadyMapped,
+    /// 地址未映射
+    NotMapped,
     /// 物理内存访问失败
     PhysAccessFailed,
 }

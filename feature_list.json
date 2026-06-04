@@ -1561,9 +1561,12 @@
       "name": "实现页表 unmap 和 translate",
       "description": "实现页表的 unmap（清除 PTE 有效位）和 translate（查询虚拟地址对应的物理地址）。处理中间页表页的回收。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, unmap_page 遍历三级页表清除叶子 PTE, translate_va 三级翻译",
+        "pedagogy: 解映射流程教学注释, 中间页表回收说明, .solution 参考实现完整"
+      ],
       "solution": ".solution/8.4-sv39-unmap-translate.rs",
       "student_todo": [
         "os/src/arch/riscv64/page.rs:unmap, translate"
