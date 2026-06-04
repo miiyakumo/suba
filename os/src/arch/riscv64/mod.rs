@@ -575,6 +575,53 @@ pub struct TrapFrame {
 // 编译期检查：TrapFrame 大小 = 34 × 8 = 272 字节
 const _: () = assert!(core::mem::size_of::<TrapFrame>() == 272);
 
+// 编译期检查：TrapFrame 字段偏移量与 trap.S 汇编代码一致
+//
+// ## 教学概念：编译期偏移量验证
+//
+// trap.S 通过硬编码偏移量（如 `sd ra, 8(a0)`）访问 TrapFrame 字段。
+// 如果 Rust 结构体的字段顺序或大小与汇编代码不匹配，会导致数据错位——
+// 这种 bug 极难调试。
+//
+// 我们使用 `core::mem::offset_of!` 宏在编译期验证每个字段的偏移量。
+// 如果任何断言失败，编译会报错，而不是在运行时出现神秘的 crash。
+//
+// 这是 OS 开发中的最佳实践：将"信任边界"从运行时移到编译期。
+const _: () = assert!(core::mem::offset_of!(TrapFrame, sepc) == 0);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x1_ra) == 8);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x2_sp) == 16);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x3_gp) == 24);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x4_tp) == 32);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x5_t0) == 40);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x6_t1) == 48);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x7_t2) == 56);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x8_s0) == 64);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x9_s1) == 72);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x10_a0) == 80);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x11_a1) == 88);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x12_a2) == 96);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x13_a3) == 104);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x14_a4) == 112);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x15_a5) == 120);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x16_a6) == 128);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x17_a7) == 136);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x18_s2) == 144);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x19_s3) == 152);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x20_s4) == 160);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x21_s5) == 168);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x22_s6) == 176);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x23_s7) == 184);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x24_s8) == 192);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x25_s9) == 200);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x26_s10) == 208);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x27_s11) == 216);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x28_t3) == 224);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x29_t4) == 232);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x30_t5) == 240);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x31_t6) == 248);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, sstatus) == 256);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, kernel_sp) == 264);
+
 impl TrapFrame {
     /// 创建全零初始化的陷阱帧
     pub const fn new() -> Self {
@@ -643,6 +690,147 @@ impl HwTrapFrame for TrapFrame {
     fn get_sepc(&self) -> usize {
         self.sepc
     }
+}
+
+// ============================================================================
+// 用户态陷阱帧设置 — S/U Mode 切换
+// ============================================================================
+
+impl TrapFrame {
+    /// 设置用户态的初始陷阱帧
+    ///
+    /// 用于从 S-mode 切换到 U-mode：设置 sstatus.SPP = User，
+    /// sepc = 用户入口地址，SPIE = 1（sret 后启用中断）。
+    ///
+    /// ## 教学概念：S/U Mode 切换
+    ///
+    /// RISC-V 的特权级切换通过 `sret` 指令完成：
+    /// 1. `sstatus.SPP` 决定 sret 后的特权级：
+    ///    - SPP = 0 (User): sret 后进入 U-mode
+    ///    - SPP = 1 (Supervisor): sret 后留在 S-mode
+    /// 2. `sepc` 决定 sret 后的 PC（从哪里开始执行）
+    /// 3. `sstatus.SPIE` 决定 sret 后的中断状态：
+    ///    - sret 自动将 SPIE 恢复到 SIE 位
+    ///    - 所以 SPIE=1 意味着 sret 后中断启用
+    ///
+    /// ## sstatus 位域
+    ///
+    /// ```text
+    /// bit 8 (SPP):  0 = User, 1 = Supervisor
+    /// bit 5 (SPIE): 1 = sret 后启用中断
+    /// bit 1 (SIE):  0 = 当前中断关闭
+    /// ```
+    ///
+    /// # 参数
+    /// - `entry`: 用户程序入口地址（sret 后的 PC）
+    /// - `user_sp`: 用户栈顶地址
+    /// - `kernel_sp`: 内核栈顶地址（从用户态 trap 回来时使用）
+    pub fn set_user_trap_frame(&mut self, entry: usize, user_sp: usize, kernel_sp: usize) {
+        // sstatus 设置：
+        // - SPP (bit 8) = 0: sret 后进入 U-mode
+        // - SPIE (bit 5) = 1: sret 后 SIE = 1（启用中断）
+        // - SIE (bit 1) = 0: 当前中断关闭
+        let sstatus: usize = 1 << 5; // SPIE=1, SPP=0, SIE=0
+        self.sepc = entry;
+        self.sstatus = sstatus;
+        self.x2_sp = user_sp;
+        self.kernel_sp = kernel_sp;
+        // 清零其他寄存器（用户程序从干净状态开始）
+        self.x1_ra = 0;
+        self.x3_gp = 0;
+        self.x4_tp = 0;
+        self.x5_t0 = 0;
+        self.x6_t1 = 0;
+        self.x7_t2 = 0;
+        self.x8_s0 = 0;
+        self.x9_s1 = 0;
+        self.x10_a0 = 0;
+        self.x11_a1 = 0;
+        self.x12_a2 = 0;
+        self.x13_a3 = 0;
+        self.x14_a4 = 0;
+        self.x15_a5 = 0;
+        self.x16_a6 = 0;
+        self.x17_a7 = 0;
+        self.x18_s2 = 0;
+        self.x19_s3 = 0;
+        self.x20_s4 = 0;
+        self.x21_s5 = 0;
+        self.x22_s6 = 0;
+        self.x23_s7 = 0;
+        self.x24_s8 = 0;
+        self.x25_s9 = 0;
+        self.x26_s10 = 0;
+        self.x27_s11 = 0;
+        self.x28_t3 = 0;
+        self.x29_t4 = 0;
+        self.x30_t5 = 0;
+        self.x31_t6 = 0;
+    }
+}
+
+// ============================================================================
+// enter_user_mode — 从 S-mode 切换到 U-mode
+// ============================================================================
+
+/// 从 S-mode 切换到 U-mode
+///
+/// 设置用户态陷阱帧后，通过 `trap_return` 执行 `sret` 切换到用户态。
+///
+/// ## 教学概念：特权级切换的完整流程
+///
+/// ```text
+/// S-mode (内核)                          U-mode (用户)
+/// ┌─────────────────┐                   ┌─────────────────┐
+/// │ 1. 准备 TrapFrame│                   │ 用户程序从       │
+/// │    SPP=User      │                   │ entry 开始执行   │
+/// │    sepc=entry    │                   │                  │
+/// │    SPIE=1        │                   │                  │
+/// │                  │                   │                  │
+/// │ 2. 写 sscratch   │                   │                  │
+/// │    (TrapFrame指针)│                   │                  │
+/// │                  │                   │                  │
+/// │ 3. trap_return() │  ─── sret ───►    │                  │
+/// │    恢复寄存器     │   SPP=0→U-mode    │                  │
+/// │    sret          │   sepc→entry      │                  │
+/// └─────────────────┘   SPIE→SIE=1      └─────────────────┘
+/// ```
+///
+/// ## 安全性
+///
+/// - `entry` 必须是有效的用户态代码地址
+/// - `user_sp` 必须是有效的用户栈顶地址
+/// - `kernel_sp` 必须是有效的内核栈顶地址
+///
+/// # 参数
+/// - `entry`: 用户程序入口地址
+/// - `user_sp`: 用户栈顶地址
+/// - `kernel_sp`: 内核栈顶地址（从用户态 trap 回来时切换到此栈）
+pub fn enter_user_mode(entry: usize, user_sp: usize, kernel_sp: usize) -> ! {
+    // 创建用户态陷阱帧
+    let mut tf = TrapFrame::new();
+    tf.set_user_trap_frame(entry, user_sp, kernel_sp);
+
+    // 将 TrapFrame 指针写入 sscratch（供下次从用户态 trap 回来时使用）
+    // SAFETY: tf 是栈上有效的 TrapFrame，生命周期覆盖整个函数
+    unsafe {
+        asm!(
+            "csrw sscratch, {tf_ptr}",
+            tf_ptr = in(reg) &tf as *const TrapFrame as usize,
+            options(nomem, nostack)
+        );
+    }
+
+    // 通过 trap_return 执行 sret，切换到用户态
+    // trap_return 在 trap.S 中实现：恢复全部寄存器，执行 sret
+    // sret 硬件行为：PC ← sepc, SIE ← SPIE, 特权级 ← SPP
+    // SAFETY: tf 是正确初始化的 TrapFrame，包含有效的 sstatus 和 sepc
+    unsafe {
+        trap_return(&mut tf as *mut TrapFrame);
+    }
+
+    // trap_return 不应返回（已切换到用户态）
+    unreachable!()
 }
 
 // --- SyscallFrame trait 实现 ---
