@@ -1825,7 +1825,7 @@
       "name": "实现 ELF 头解析",
       "description": "实现 ELF 头的解析：验证魔数（0x7f 'E' 'L' 'F'）→ 检查是否为 ELF64 RISC-V 可执行文件 → 提取入口点地址和程序头表位置。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/10.1-elf-header.rs",
