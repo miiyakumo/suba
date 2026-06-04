@@ -1531,8 +1531,8 @@
       "name": "实现 SV39 地址翻译",
       "description": "实现 SV39 的虚拟地址翻译：VPN[2:0]（各9位）→ 三级页表查找 → 物理页号 + 页内偏移。理解多级页表如何节省内存。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/8.2-sv39-translate.rs",
       "student_todo": [
