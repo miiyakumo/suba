@@ -2,17 +2,40 @@
 //!
 //! 这是 suba 内核的二进制入口，负责：
 //! 1. entry.S: 设置栈、清零 BSS、跳转 rust_main
-//! 2. rust_main: 初始化内核子系统，进入主循环
+//! 2. rust_main: 初始化内核子系统，加载 init 程序，进入调度
 //!
-//! ## 启动流程
+//! ## 完整启动流程
+//!
 //! ```text
-//! OpenSBI → entry.S (_start) → rust_main()
-//!   ├── 打印启动信息
-//!   ├── 初始化内核堆
-//!   ├── 初始化任务系统
-//!   ├── 创建第一个内核任务
-//!   └── 启动调度（进入 idle 循环）
+//! OpenSBI (M-mode)
+//!   │
+//!   └─ ecall → entry.S (_start)
+//!        ├── 设置栈指针 (sp → boot_stack_top)
+//!        ├── 清零 BSS 段
+//!        └── call rust_main()
+//!             │
+//!             ├─ Step 1:  打印启动横幅
+//!             ├─ Step 2:  初始化内核堆 (2MB)
+//!             ├─ Step 3:  初始化物理帧分配器
+//!             ├─ Step 4:  创建内核页表并激活 SV39
+//!             ├─ Step 5:  设置陷阱向量 (stvec → trap_entry)
+//!             ├─ Step 6:  初始化中断控制器 (CLINT + PLIC)
+//!             ├─ Step 7:  启用全局中断 (sstatus.SIE=1)
+//!             ├─ Step 8:  初始化任务系统
+//!             ├─ Step 9:  加载 init 程序到用户地址空间
+//!             └─ Step 10: 启动调度器，进入 idle 循环
 //! ```
+//!
+//! ## 教学概念：内核启动的分层初始化
+//!
+//! 内核启动是一个"逐步解锁能力"的过程：
+//! - 没有堆 → 不能用 Box/Vec（只能栈上分配和静态变量）
+//! - 没有页表 → 所有地址都是物理地址（VA=PA）
+//! - 没有中断 → CPU 单线程顺序执行
+//! - 没有任务 → 只有一个执行流
+//!
+//! 每一步初始化都为下一步奠定基础，顺序不能随意调换。
+//! 这是理解操作系统启动的关键洞察。
 
 #![no_std]
 #![no_main]
@@ -29,7 +52,6 @@ mod util;
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use suba_kernel::arch::CpuOps;
 use suba_kernel::driver::Console;
 use suba_kernel::mm::heap;
 use suba_kernel::task::{RoundRobinScheduler, TaskManager};
@@ -133,27 +155,45 @@ pub fn uart_puts(s: &str) {
     driver::uart::UartConsole::puts(s);
 }
 
-/// 内核 Rust 入口
+// ===========================================================================
+// 内核主入口 — 完整启动流程
+// ===========================================================================
+
+/// 内核 Rust 入口 — 完整启动流程
 ///
 /// 由 entry.S 调用，此时：
 /// - 栈已设置（sp → boot_stack_top）
 /// - BSS 已清零（汇编级）
 /// - 中断已关闭（OpenSBI 默认）
 ///
-/// ## 启动步骤
-/// 1. 打印启动横幅
-/// 2. 初始化内核堆（2MB）
-/// 3. 设置陷阱向量（stvec → trap_entry）
-/// 4. 初始化任务管理器和调度器
-/// 5. 创建 idle 任务（PID 1）
-/// 6. 启动调度，进入 idle 循环
+/// 本函数按照严格的顺序初始化所有内核子系统，
+/// 最终加载 init 程序并启动调度器。
+///
+/// ## 教学概念：启动顺序为什么重要？
+///
+/// 每一步初始化都依赖前面的步骤：
+/// - 堆初始化需要 BSS 已清零（全局变量为零）
+/// - 帧分配器需要堆已初始化（分配器元数据在堆上）
+/// - 页表需要帧分配器（分配页表页）
+/// - 中断需要页表（MMIO 地址映射）和陷阱向量
+/// - 任务系统需要堆和中断（任务结构体分配、时钟中断驱动调度）
+/// - 用户程序需要任务系统（创建用户任务）和页表（用户地址空间）
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main() -> ! {
-    // ---- Step 1: 打印启动信息 ----
-    uart_puts("\n[suba] booting on RISC-V...\n");
+    // ================================================================
+    // Step 1: 打印启动横幅
+    // ================================================================
+    // 此时 UART 已由 OpenSBI 初始化，可以直接输出
+    uart_puts("\n");
+    uart_puts("========================================\n");
+    uart_puts("  suba kernel — RISC-V 64-bit\n");
+    uart_puts("========================================\n");
 
-    // ---- Step 2: 初始化内核堆 ----
-    // 堆区域紧跟在内核镜像之后，大小 2MB
+    // ================================================================
+    // Step 2: 初始化内核堆 (2MB)
+    // ================================================================
+    // 堆区域紧跟在内核镜像之后（ekernel 符号由链接脚本定义）
+    // 初始化后才能使用 Box、Vec、Arc 等需要动态分配的类型
     unsafe extern "C" {
         fn ekernel();
     }
@@ -165,10 +205,14 @@ pub extern "C" fn rust_main() -> ! {
     // 初始化全局分配器（供 alloc crate 使用）
     // SAFETY: 单线程启动阶段，仅调用一次
     unsafe { GLOBAL_ALLOC.init(heap_start, heap::HEAP_SIZE) };
-    uart_puts("[suba] heap initialized\n");
+    uart_puts("[boot] heap initialized (2MB)\n");
 
-    // ---- Step 2.5: 初始化物理帧分配器 ----
-    // 帧分配器管理堆区域之后的物理内存，用于分配用户页表和用户内存页
+    // ================================================================
+    // Step 3: 初始化物理帧分配器
+    // ================================================================
+    // 帧分配器管理堆区域之后的物理内存，用于分配：
+    // - 用户页表页
+    // - 用户内存页（代码、数据、栈）
     let frame_alloc_start = heap_start + heap::HEAP_SIZE;
     let frame_alloc_end = suba_kernel::mm::address::PHYS_MEMORY_START
         + suba_kernel::mm::address::PHYS_MEMORY_SIZE;
@@ -176,105 +220,84 @@ pub extern "C" fn rust_main() -> ! {
     unsafe {
         arch::riscv64::page::init_frame_allocator(frame_alloc_start, frame_alloc_end);
     }
-    uart_puts("[suba] frame allocator initialized\n");
+    uart_puts("[boot] frame allocator initialized\n");
 
-    // ---- Step 3: 初始化内核页表 ----
-    // 创建 SV39 身份映射页表并激活分页
-    // 这将建立虚拟地址到物理地址的翻译（当前 VA=PA）
+    // ================================================================
+    // Step 4: 创建内核页表并激活 SV39 分页
+    // ================================================================
+    // 使用 1GB 大页进行身份映射（VA=PA），覆盖 4GB 地址空间
+    // 激活 satp 后，所有内存访问都经过页表翻译
+    //
+    // ## 教学概念：身份映射 (Identity Mapping)
+    //
+    // 身份映射是最简单的页表配置：虚拟地址 = 物理地址。
+    // 这样内核代码在开启分页前后使用相同的地址，无需修改。
+    // 缺点是无法利用虚拟内存的隔离和保护能力。
+    // 后续可以迁移到高地址映射（VA = PA + offset）。
     arch::riscv64::init_kernel_page_table();
-    uart_puts("[suba] kernel page table activated (SV39)\n");
+    uart_puts("[boot] kernel page table activated (SV39)\n");
 
-    // ---- Step 4: 设置陷阱向量 ----
-    // TODO(student): 将 stvec CSR 设置为 trap_entry 的地址
-    // 发生异常/中断时 CPU 会跳转到 stvec 指向的地址
-    // 理解: stvec 是 RISC-V 的陷阱向量寄存器 (类似 x86 的 IDTR)
-    // init_trap() 写入 stvec: csrw stvec, trap_entry
+    // ================================================================
+    // Step 5: 设置陷阱向量 (stvec → trap_entry)
+    // ================================================================
+    // stvec 告诉 CPU："发生陷阱时跳转到这个地址"
+    // trap_entry 在 trap.S 中实现，保存全部寄存器后调用 trap_handler
+    //
+    // ## 教学概念：Direct vs Vectored 模式
+    //
+    // stvec 低 2 位选择陷阱模式：
+    // - 0 (Direct): 所有陷阱跳转到基地址（我们使用此模式）
+    // - 1 (Vectored): 中断跳转到 base+4*cause，异常跳转到 base
+    //
+    // Direct 模式更灵活：由软件根据 scause 分发，
+    // 而不是由硬件强制跳转到不同地址。
     arch::riscv64::init_trap();
-    uart_puts("[suba] trap vector set\n");
+    uart_puts("[boot] trap vector set (stvec → trap_entry)\n");
 
-    // ---- Step 4.5: 初始化中断控制器 ----
-    // 初始化 CLINT 时钟中断：设置第一次 timer 并使能 sie.STIE
+    // ================================================================
+    // Step 6: 初始化中断控制器
+    // ================================================================
+    // CLINT (Core Local Interruptor): 提供时钟中断和软件中断
+    // - 时钟中断是调度的基础：每次 timer 到期触发调度决策
     driver::clint::init();
-    uart_puts("[suba] CLINT initialized (timer interrupt)\n");
+    uart_puts("[boot] CLINT initialized (timer interrupt)\n");
 
-    // 初始化 PLIC 外部中断：配置 UART0 路由到 S-mode，使能 sie.SEIE
+    // PLIC (Platform-Level Interrupt Controller): 管理外部设备中断
+    // - UART0 中断：接收键盘输入
+    // - 路由到 S-mode，由内核处理
     driver::plic::init();
-    uart_puts("[suba] PLIC initialized (UART0 → S-mode)\n");
+    uart_puts("[boot] PLIC initialized (UART0 → S-mode)\n");
 
-    // ---- Step 4.6: 启用全局中断 ----
-    // TODO(student): 设置 sstatus.SIE = 1，允许 CPU 响应 S-mode 中断
+    // ================================================================
+    // Step 7: 启用全局中断 (sstatus.SIE=1)
+    // ================================================================
+    // RISC-V 中断使能有两级控制：
+    // 1. sie 寄存器：按中断类型使能（已在 Step 6 设置）
+    // 2. sstatus.SIE：S-mode 全局中断总开关（现在打开）
     //
-    // ## 教学概念：中断使能的两级控制
+    // 两级都打开，中断才能到达 CPU。
     //
-    // RISC-V 中断使能有两级：
-    // 1. **sie 寄存器**：按中断类型使能（STIE=时钟, SEIE=外部, SSIE=软件）
-    //    - 已在 clint::init() 和 plic::init() 中设置
-    // 2. **sstatus.SIE**：S-mode 全局中断总开关
-    //    - SIE=1: 允许 CPU 响应已使能的中断
-    //    - SIE=0: 忽略所有 S-mode 中断
+    // ## 教学概念：为什么在最后才启用中断？
     //
-    // 两级都打开，中断才能到达 CPU。这提供了灵活的中断控制：
-    // - 关闭 sstatus.SIE：临时屏蔽所有中断（临界区保护）
-    // - 关闭 sie.STIE：仅禁用时钟中断
+    // 中断处理函数依赖前面初始化的子系统：
+    // - 时钟中断需要任务系统（调度器）
+    // - 外部中断需要 PLIC 配置
+    // - 陷阱处理需要 stvec 和页表
     //
-    // ## 教学概念：中断优先级
-    //
-    // RISC-V 硬件中断优先级（从高到低）：
-    //   1. Supervisor software interrupt (ssi)
-    //   2. Supervisor timer interrupt (sti)   ← 时钟中断优先级更高
-    //   3. Supervisor external interrupt (sei) ← 外部中断优先级较低
-    //
-    // 当多个中断同时挂起时，CPU 总是先处理优先级最高的。
-    // 这意味着时钟中断可以抢占外部中断处理，保证调度的实时性。
+    // 如果过早启用中断，中断处理函数可能访问未初始化的数据结构。
     arch::riscv64::Riscv64CpuOps::enable_interrupts();
-    uart_puts("[suba] interrupts enabled (sstatus.SIE=1)\n");
+    uart_puts("[boot] interrupts enabled (sstatus.SIE=1)\n");
 
-    // ---- Step 5: 页表测试 ----
-    uart_puts("[suba] running page table tests...\n");
-    arch::riscv64::page::run_tests();
-
-    // ---- Step 5.5: 用户栈创建测试 ----
-    // 创建用户地址空间并映射用户栈，验证栈可用
-    uart_puts("[suba] creating user stack...\n");
-    match arch::riscv64::page::UserAddrSpace::new() {
-        Ok(user_space) => {
-            match user_space.map_user_stack() {
-                Ok(stack_top) => {
-                    uart_puts("[suba] user stack mapped: top=");
-                    arch::riscv64::page::print_hex(stack_top);
-                    uart_puts(", size=8MB\n");
-                }
-                Err(_) => {
-                    uart_puts("[suba] WARN: user stack mapping failed\n");
-                }
-            }
-        }
-        Err(_) => {
-            uart_puts("[suba] WARN: user addr space creation failed\n");
-        }
-    }
-
-    // ---- Step 6: 加载 init 程序 ----
-    // TODO(student): 加载 init ELF 程序到用户地址空间
-    //
-    // 完整流程：
-    //   1. 从 initrd/嵌入式二进制获取 ELF 数据
-    //   2. 调用 Riscv64ElfLoader::load_elf_to_space(elf_data)
-    //   3. 激活用户页表：user_space.activate()
-    //   4. 设置 TrapFrame 并 sret 到用户态：
-    //      enter_user_mode(entry, stack_top, kernel_sp, 0)
-    //
-    // 当前阶段：init 程序尚未嵌入，跳过用户态启动。
-    // 后续 feature (11.3) 会完成 ELF 加载和用户态切换。
-    uart_puts("[suba] init program loading: skipped (no embedded ELF yet)\n");
-
-    // ---- Step 7: 初始化任务系统 ----
+    // ================================================================
+    // Step 8: 初始化任务系统
+    // ================================================================
+    // TaskManager 管理所有任务的创建和查找
+    // RoundRobinScheduler 实现简单的轮转调度
     let mut tm = TaskManager::new();
     let mut sched = RoundRobinScheduler::new();
-    uart_puts("[suba] task system ready\n");
 
-    // ---- Step 8: 创建 idle 任务 ----
-    // idle 任务的入口是 idle_loop 函数，栈使用 boot_stack
+    // 创建 idle 任务（PID=1）
+    // idle 任务在无其他可运行任务时执行，使用 wfi 等待中断
     unsafe extern "C" {
         fn boot_stack_top();
     }
@@ -284,16 +307,51 @@ pub extern "C" fn rust_main() -> ! {
         0, // 无用户栈
     );
     sched.enqueue(idle_task);
-    uart_puts("[suba] idle task created (PID 1)\n");
+    uart_puts("[boot] task system ready (idle task PID=1)\n");
 
-    // ---- Step 9: 启动调度 ----
-    uart_puts("[suba] starting scheduler...\n");
+    // ================================================================
+    // Step 9: 加载 init 程序到用户地址空间
+    // ================================================================
+    // TODO(student): 加载 init ELF 程序
+    //
+    // 完整流程：
+    //   1. 从 initrd 或嵌入式二进制获取 ELF 数据
+    //   2. 调用 load_elf_to_space(elf_data) 解析 ELF 并加载到用户页表
+    //   3. 切换到用户页表：user_space.activate()
+    //   4. 设置 TrapFrame 并切换到用户态：
+    //      enter_user_mode(entry, stack_top, kernel_sp, 0)
+    //
+    // ## 教学概念：init 程序的角色
+    //
+    // Unix 系统中，PID=1 的 init 进程是所有用户进程的祖先：
+    // - 它是内核启动后运行的第一个用户程序
+    // - 负责启动 shell、守护进程等
+    // - 回收孤儿进程（当父进程退出时，子进程重新挂到 init 下）
+    //
+    // 在 suba 中，init 程序可以是一个简单的 shell 或测试程序。
+    // 当前阶段：init 程序尚未嵌入，内核以 idle 循环运行。
+    // 后续 feature 会完成 ELF 加载和用户态切换。
+    uart_puts("[boot] init: skipped (no embedded ELF yet)\n");
 
+    // ================================================================
+    // Step 10: 启动调度器，进入 idle 循环
+    // ================================================================
     // 从调度器取出第一个任务并执行
-    // 当前阶段：直接进入 idle 循环（上下文切换需要 Arch trait 实现）
+    // 当前只有一个 idle 任务，直接执行它
+    //
+    // ## 教学概念：调度器的工作方式
+    //
+    // 调度器维护一个就绪队列，每次 next() 返回下一个应该运行的任务。
+    // Round-Robin 调度：所有任务轮流执行，每个任务运行一个时间片。
+    // 当时钟中断到来时，当前任务被抢占，调度器选择下一个任务。
+    //
+    // 当前阶段：只有一个 idle 任务，所以总是调度它。
+    // 后续添加更多任务后，调度器会在它们之间切换。
+    uart_puts("[boot] starting scheduler...\n");
+
     if let Some(task) = sched.next() {
         let t = task.lock();
-        uart_puts("[suba] scheduling PID ");
+        uart_puts("[boot] scheduled PID ");
         uart_putchar(b'0' + t.pid as u8);
         uart_putchar(b'\n');
     }
@@ -301,22 +359,39 @@ pub extern "C" fn rust_main() -> ! {
     // TODO(student): 实现真正的上下文切换
     // 需要 RISC-V Arch trait 实现后，调用：
     //   unsafe { ArchImpl::context_switch(current_ctx, next_ctx) };
+    // 当前直接进入 idle 循环
     idle_loop();
 }
 
-/// idle 循环 — 无任务可调度时 CPU 执行此函数
+// ===========================================================================
+// idle 循环
+// ===========================================================================
+
+/// idle 循环 — CPU 空闲时执行此函数
 ///
-/// 在后续实现中，这将成为 idle 任务的入口点：
-/// 1. 开启中断（wfi 前）
-/// 2. wfi 等待中断
-/// 3. 循环
+/// ## 教学概念：idle 任务的作用
+///
+/// 当调度器中没有其他可运行任务时，CPU 执行 idle 循环。
+/// idle 循环使用 `wfi` (Wait For Interrupt) 指令让 CPU 进入低功耗状态，
+/// 直到有中断到来（如时钟中断）唤醒 CPU。
+///
+/// 这比忙等待（`loop {}`）更高效：
+/// - 忙等待：CPU 持续执行空循环，消耗大量电能
+/// - wfi：CPU 暂停执行，进入低功耗等待模式
+///
+/// 中断唤醒 CPU 后，中断处理函数执行（如调度决策），
+/// 然后返回到 idle 循环继续等待。
 fn idle_loop() -> ! {
-    uart_puts("[suba] entering idle loop\n");
+    uart_puts("[boot] entering idle loop (wfi)\n");
     loop {
-        // SAFETY: wfi 是特权指令，等待中断唤醒
+        // SAFETY: wfi 是 S-mode 合法指令，等待中断唤醒
         unsafe { asm!("wfi") }
     }
 }
+
+// ===========================================================================
+// panic handler
+// ===========================================================================
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
