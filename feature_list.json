@@ -1388,8 +1388,8 @@
       "name": "实现 RISC-V CpuOps",
       "description": "在 os/src/arch/riscv64/mod.rs 中实现 Riscv64CpuOps，通过 CSR 指令操作 sstatus/sie/sip 寄存器。id() 读 mhartid，halt() 使用 wfi。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/7.6-riscv-cpuops.rs",
       "student_todo": [
