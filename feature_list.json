@@ -1947,7 +1947,7 @@
       "name": "实现 RISC-V Power trait",
       "description": "为 RISC-V 实现 Power trait：shutdown 通过 SBI 调用或写入 test device MMIO 地址实现。替换 os 中现有的 SBI 直接调用。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/10.9-riscv-power.rs",
