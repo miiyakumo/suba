@@ -177,7 +177,13 @@ pub extern "C" fn rust_main() -> ! {
     unsafe { GLOBAL_ALLOC.init(heap_start, heap::HEAP_SIZE) };
     uart_puts("[suba] heap initialized\n");
 
-    // ---- Step 3: 设置陷阱向量 ----
+    // ---- Step 3: 初始化内核页表 ----
+    // 创建 SV39 身份映射页表并激活分页
+    // 这将建立虚拟地址到物理地址的翻译（当前 VA=PA）
+    arch::riscv64::init_kernel_page_table();
+    uart_puts("[suba] kernel page table activated (SV39)\n");
+
+    // ---- Step 4: 设置陷阱向量 ----
     // TODO(student): 将 stvec CSR 设置为 trap_entry 的地址
     // 发生异常/中断时 CPU 会跳转到 stvec 指向的地址
     // 理解: stvec 是 RISC-V 的陷阱向量寄存器 (类似 x86 的 IDTR)

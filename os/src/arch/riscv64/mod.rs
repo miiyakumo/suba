@@ -855,3 +855,155 @@ impl SyscallFrame for TrapFrame {
         self.x10_a0 = val;
     }
 }
+
+// ============================================================================
+// 内核页表初始化 — SV39 身份映射
+// ============================================================================
+
+use page::{PageTableEntry, PteFlags, PAGE_SIZE};
+
+/// 内核根页表（512 个 PTE = 4KB）
+///
+/// 使用 `#[repr(C, align(4096))]` 确保 4KB 页对齐。
+/// 这是 SV39 硬件要求：页表页必须页对齐。
+///
+/// ## 教学概念：静态页表
+///
+/// 内核页表在启动时初始化一次，之后所有内核代码共享。
+/// 使用 `static` 而非栈上分配，因为页表生命周期是整个内核运行期。
+#[repr(C, align(4096))]
+struct KernelPageTable {
+    entries: [PageTableEntry; 512],
+}
+
+/// 内核根页表实例
+///
+/// 全零初始化，所有 PTE 初始为无效（V=0）。
+/// `init_kernel_page_table()` 会填充必要的映射。
+static mut KERNEL_PAGE_TABLE: KernelPageTable = KernelPageTable {
+    entries: [PageTableEntry::empty(); 512],
+};
+
+/// 初始化内核页表并激活 SV39 分页
+///
+/// 使用 **身份映射**（VA = PA）：虚拟地址和物理地址相同。
+/// 这是最简单的映射方式，适合教学内核。
+///
+/// ## 教学概念：1GB 大页 (Superpage)
+///
+/// SV39 支持三级页表，但也可以在 Level 2 直接映射大页：
+/// - Level 2 叶子 PTE → 1GB 页面（跳过 Level 1 和 Level 0）
+/// - Level 1 叶子 PTE → 2MB 页面（跳过 Level 0）
+/// - Level 0 叶子 PTE → 4KB 页面（标准）
+///
+/// 我们使用 1GB 大页，只需 4 个 PTE 就能映射全部 4GB 地址空间。
+///
+/// ## QEMU virt 内存布局
+///
+/// ```text
+/// 0x0000_0000 - 0x4000_0000  (1GB): MMIO (UART, CLINT, PLIC)
+/// 0x4000_0000 - 0x8000_0000  (1GB): 保留
+/// 0x8000_0000 - 0xC000_0000  (1GB): DRAM (内核在此)
+/// 0xC000_0000 - 0x1_0000_0000 (1GB): 保留
+/// ```
+pub fn init_kernel_page_table() {
+    // 使用 1GB 大页进行身份映射
+    // flags: V=1, R=1, W=1, X=1, A=1, D=1, G=1
+    // - V: 有效
+    // - R/W/X: 可读写执行（叶子 PTE 必须至少设置一个）
+    // - A/D: 已访问/已脏（预设，避免硬件/软件设置问题）
+    // - G: 全局映射（不随 ASID 刷新）
+    let flags = PteFlags::VALID
+        | PteFlags::READ
+        | PteFlags::WRITE
+        | PteFlags::EXECUTE
+        | PteFlags::ACCESSED
+        | PteFlags::DIRTY
+        | PteFlags::GLOBAL;
+
+    // Level 2 页表有 512 个条目，每个覆盖 1GB
+    // index 0: 0x0000_0000 - 0x3FFF_FFFF (MMIO)
+    // index 1: 0x4000_0000 - 0x7FFF_FFFF (保留)
+    // index 2: 0x8000_0000 - 0xBFFF_FFFF (DRAM)
+    // index 3: 0xC000_0000 - 0xFFFF_FFFF (保留)
+    //
+    // 我们映射 index 0-3，覆盖完整 4GB 物理地址空间。
+    // 这样所有 MMIO 和 DRAM 都可访问。
+    unsafe {
+        for i in 0..4 {
+            let pa_base = i * (1 << 30); // 每个条目 1GB = 2^30 字节
+            let ppn = pa_base >> 12;     // PPN = PA / 4096
+            KERNEL_PAGE_TABLE.entries[i] = PageTableEntry::new_leaf(ppn as u64, PteFlags(flags));
+        }
+    }
+
+    // 写入 satp 寄存器激活 SV39 分页
+    // satp 格式：MODE[63:60] | ASID[59:44] | PPN[43:0]
+    // - MODE = 8: SV39 模式
+    // - ASID = 0: 地址空间 ID（单地址空间）
+    // - PPN: 根页表的物理页号
+    let root_ppn = (&raw const KERNEL_PAGE_TABLE as *const _ as usize) >> 12;
+    let satp_val: usize = (8_usize << 60) | root_ppn;
+
+    // SAFETY: 写入 satp 是特权操作，必须在 S-mode 执行
+    unsafe {
+        asm!(
+            "csrw satp, {satp}",
+            "sfence.vma",
+            satp = in(reg) satp_val,
+        );
+    }
+}
+
+/// 刷新 TLB（全部条目）
+///
+/// ## 教学概念：TLB 与 sfence.vma
+///
+/// TLB (Translation Lookaside Buffer) 缓存了最近的地址翻译结果。
+/// 修改页表后，旧的翻译可能还在 TLB 中，必须手动刷新。
+///
+/// `sfence.vma` 指令刷新 TLB：
+/// - `sfence.vma`: 刷新所有 TLB 条目
+/// - `sfence.vma vaddr, zero`: 刷新特定虚拟地址
+/// - `sfence.vma zero, asid`: 刷新特定 ASID
+pub fn flush_tlb_all() {
+    // SAFETY: sfence.vma 是特权指令
+    unsafe {
+        asm!("sfence.vma");
+    }
+}
+
+/// 刷新特定虚拟地址的 TLB 条目
+pub fn flush_tlb_addr(addr: usize) {
+    // SAFETY: sfence.vma 是特权指令
+    unsafe {
+        asm!("sfence.vma {addr}, zero", addr = in(reg) addr);
+    }
+}
+
+/// 读取当前 satp 寄存器值
+pub fn read_satp() -> usize {
+    let satp: usize;
+    // SAFETY: satp 是只读 CSR（在 S-mode 下）
+    unsafe {
+        asm!("csrr {}, satp", out(reg) satp, options(nomem, nostack));
+    }
+    satp
+}
+
+/// 切换到新的页表
+///
+/// # Safety
+///
+/// `root_ppn` 必须指向一个有效的 SV39 页表。
+pub unsafe fn switch_page_table(root_ppn: usize) {
+    let satp_val: usize = (8_usize << 60) | root_ppn;
+    // SAFETY: 切换页表是特权操作
+    unsafe {
+        asm!(
+            "csrw satp, {satp}",
+            "sfence.vma",
+            satp = in(reg) satp_val,
+        );
+    }
+}
