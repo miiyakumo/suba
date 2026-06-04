@@ -1581,7 +1581,10 @@
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
       "review_status": "approved",
-      "review_log": [],
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, 1GB 大页身份映射 4GB, satp SV39 MODE=8, sfence.vma",
+        "pedagogy: 1GB superpage 概念, QEMU virt 内存布局, TLB 刷新教学, .solution 参考实现"
+      ],
       "solution": ".solution/8.5-kernel-page-table.rs",
       "student_todo": [
         "os/src/main.rs:内核页表初始化"
@@ -1596,7 +1599,10 @@
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
       "review_status": "approved",
-      "review_log": [],
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, switch_page_table 实现正确 (MODE=8 SV39, sfence.vma)",
+        "pedagogy: satp 格式说明, TLB 刷新机制教学, .solution 参考实现"
+      ],
       "solution": ".solution/8.6-satp-switch.rs",
       "student_todo": [
         "os/src/arch/riscv64/mod.rs:switch_page_table"
@@ -1669,8 +1675,8 @@
       "name": "UART MMIO 寄存器定义",
       "description": "在 os/src/driver/uart.rs 中定义 NS16550A UART 的 MMIO 寄存器结构。QEMU virt 机器的 UART 基地址为 0x10000000。理解 MMIO——通过读写内存地址来控制硬件。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/9.1-uart-registers.rs",
       "student_todo": [
@@ -1684,7 +1690,7 @@
       "name": "实现 UART 发送（轮询模式）",
       "description": "实现 UART 的 putchar：读取 LSR（Line Status Register）检查 THR（Transmit Holding Register）是否为空，然后写入 THR。轮询模式是最简单的 I/O 方式。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.2-uart-putchar.rs",

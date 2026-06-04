@@ -1690,7 +1690,7 @@
       "name": "实现 UART 发送（轮询模式）",
       "description": "实现 UART 的 putchar：读取 LSR（Line Status Register）检查 THR（Transmit Holding Register）是否为空，然后写入 THR。轮询模式是最简单的 I/O 方式。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.2-uart-putchar.rs",

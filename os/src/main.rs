@@ -116,32 +116,17 @@ unsafe impl core::alloc::GlobalAlloc for BumpAllocator {
 #[global_allocator]
 static GLOBAL_ALLOC: BumpAllocator = BumpAllocator::new();
 
-/// 向 QEMU UART (NS16550A) 输出一个字符
-///
-/// UART0 基地址 0x1000_0000，THR 偏移 0，LSR 偏移 5
-/// LSR bit 5 (THR Empty) 为 1 时才能写入
-#[inline(always)]
+/// 全局 UART 实例（UART0 @ 0x1000_0000）
+static UART0: driver::uart::Uart = driver::uart::Uart::new(driver::uart::UART0_BASE);
+
+/// 向 UART 输出一个字符（轮询模式）
 pub fn uart_putchar(c: u8) {
-    unsafe {
-        asm!(
-        "li t0, 0x10000000",   // UART base
-        "1:",
-        "lb t1, 5(t0)",        // LSR = base + 5
-        "andi t1, t1, 0x20",   // THR empty?
-        "beqz t1, 1b",         // 等待可发送
-        "sb {0}, 0(t0)",       // 写入字符
-        in(reg) c,
-        out("t0") _,
-        out("t1") _,
-        );
-    }
+    UART0.putchar(c);
 }
 
 /// 向 UART 输出字符串
 pub fn uart_puts(s: &str) {
-    for b in s.bytes() {
-        uart_putchar(b);
-    }
+    UART0.puts(s);
 }
 
 /// 内核 Rust 入口

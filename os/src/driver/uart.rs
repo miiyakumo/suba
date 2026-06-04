@@ -306,6 +306,78 @@ impl Uart {
     pub fn is_data_ready(&self) -> bool {
         self.read_lsr() & LsrFlags::DR != 0
     }
+
+    // --- 轮询模式 I/O ---
+
+    /// 初始化 UART（轮询模式）
+    ///
+    /// 设置 8N1（8 数据位，无校验，1 停止位），禁用中断。
+    ///
+    /// ## 教学概念：UART 初始化
+    ///
+    /// 使用 UART 前必须配置其工作参数：
+    /// 1. 禁用中断（轮询模式不需要中断）
+    /// 2. 设置 DLAB 以配置波特率（QEMU 中可省略）
+    /// 3. 设置 8N1 数据格式
+    /// 4. 使能 FIFO
+    /// 5. 设置 MCR
+    pub fn init(&mut self) {
+        // 禁用中断
+        self.write_ier(0x00);
+
+        // 使能 FIFO，清空收发 FIFO
+        self.write_fcr(0x07);
+
+        // 设置 8N1: 8 数据位, 无校验, 1 停止位
+        // LCR bit 1:0 = 11 (8 数据位)
+        self.write_lcr(0x03);
+
+        // 设置 MCR: DTR + RTS
+        self.write_mcr(0x03);
+    }
+
+    /// 轮询方式发送一个字节
+    ///
+    /// 等待 THR 为空，然后写入字符。
+    ///
+    /// ## 教学概念：轮询 (Polling)
+    ///
+    /// 轮询是最简单的 I/O 方式：不断检查状态寄存器，直到条件满足。
+    /// 优点：实现简单，无中断处理复杂性。
+    /// 缺点：等待期间 CPU 被占用（busy-waiting）。
+    ///
+    /// 对于 QEMU 虚拟机，轮询足够高效。
+    /// 真实硬件上通常使用中断驱动 I/O。
+    pub fn putchar(&self, c: u8) {
+        // 等待发送缓冲区为空
+        while !self.is_thr_empty() {}
+        // 写入字符
+        self.write_thr(c);
+    }
+
+    /// 轮询方式发送字符串
+    pub fn puts(&self, s: &str) {
+        for b in s.bytes() {
+            // 处理换行符：发送 \r\n
+            if b == b'\n' {
+                self.putchar(b'\r');
+            }
+            self.putchar(b);
+        }
+    }
+
+    /// 轮询方式接收一个字节（阻塞）
+    ///
+    /// 等待数据就绪，然后读取 RBR。
+    ///
+    /// ## 教学概念：阻塞 I/O
+    ///
+    /// `getchar` 会阻塞直到有数据可读。
+    /// 与 `putchar` 类似，使用轮询方式检查 LSR 的 DR 位。
+    pub fn getchar(&self) -> u8 {
+        while !self.is_data_ready() {}
+        self.read_rbr()
+    }
 }
 
 // ============================================================================
