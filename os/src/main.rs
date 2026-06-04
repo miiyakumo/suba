@@ -202,7 +202,11 @@ pub extern "C" fn rust_main() -> ! {
     arch::riscv64::init_trap();
     uart_puts("[suba] trap vector set\n");
 
-    // ---- Step 4: 初始化任务系统 ----
+    // ---- Step 5: 页表测试 ----
+    uart_puts("[suba] running page table tests...\n");
+    arch::riscv64::page::run_tests();
+
+    // ---- Step 6: 初始化任务系统 ----
     let mut tm = TaskManager::new();
     let mut sched = RoundRobinScheduler::new();
     uart_puts("[suba] task system ready\n");

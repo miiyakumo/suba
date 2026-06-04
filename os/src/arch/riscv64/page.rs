@@ -859,11 +859,15 @@ impl UserAddrSpace {
     /// - `Ok(space)`: 新的用户地址空间
     /// - `Err(MapError)`: 帧分配失败
     pub fn new() -> Result<Self, MapError> {
-        // 分配并清零根页表帧
+        // TODO(student): 分配并清零一个物理帧作为根页表
+        // 提示: 使用 alloc_zeroed_frame() 分配，用 ok_or() 转换错误
         let root_ppn = alloc_zeroed_frame().ok_or(MapError::FrameAllocFailed)?;
 
-        // 从当前内核页表复制所有内核映射
-        // 读取当前 satp 获取内核根页表 PPN
+        // TODO(student): 从当前内核页表复制内核映射到新页表
+        // 提示:
+        //   1. 读取当前 satp 寄存器获取内核根页表 PPN
+        //   2. 遍历 512 个 PTE，逐个从内核页表复制到用户页表
+        //   3. 使用 phys_read_u64/phys_write_u64 进行物理内存读写
         let kernel_satp = read_satp_current();
         let kernel_root_ppn = kernel_satp & 0x0FFF_FFFF_FFFF; // 低 44 位是 PPN
 
@@ -917,7 +921,9 @@ impl UserAddrSpace {
         pa: usize,
         flags: PteFlags,
     ) -> Result<(), MapError> {
-        // 自动添加 U 标志
+        // TODO(student): 映射用户页，自动添加 U (User) 标志
+        // 提示: 用户态页面必须设置 U 标志，否则 U-mode 访问会触发页错误
+        // 使用 PteFlags::USER 与其他标志组合
         let user_flags = PteFlags(flags.0 | PteFlags::USER);
         map_page(
             va,
@@ -1007,6 +1013,12 @@ impl UserAddrSpace {
     /// - `Ok(stack_top_va)`: 用户栈顶虚拟地址
     /// - `Err(MapError)`: 帧分配失败
     pub fn map_user_stack(&self) -> Result<usize, MapError> {
+        // TODO(student): 映射用户栈（8MB，从 USER_STACK_TOP 向下增长）
+        // 提示:
+        //   1. 计算栈底地址 = USER_STACK_TOP - USER_STACK_SIZE
+        //   2. 为每个栈页分配物理帧（alloc_zeroed_frame）
+        //   3. 用 map_user_page 映射，标志为 READ | WRITE（U 标志自动添加）
+        //   4. 返回 USER_STACK_TOP 作为栈顶
         let num_pages = USER_STACK_SIZE / PAGE_SIZE;
         let stack_bottom_va = USER_STACK_TOP - USER_STACK_SIZE;
 
@@ -1015,7 +1027,7 @@ impl UserAddrSpace {
             // 分配物理帧用于栈页
             let pa_ppn = alloc_zeroed_frame().ok_or(MapError::FrameAllocFailed)?;
             let pa = pa_ppn * PAGE_SIZE;
-            // 栈页：可读写 + 用户态
+            // 栈页：可读写 + 用户态（U 标志由 map_user_page 自动添加）
             let flags = PteFlags(PteFlags::READ | PteFlags::WRITE);
             // SAFETY: 刚分配的物理帧，独占访问
             unsafe {
@@ -1053,7 +1065,12 @@ impl UserAddrSpace {
     ///
     /// `trap_entry_pa` 必须指向包含有效 trap entry 代码的物理页。
     pub unsafe fn map_trampoline(&self, trap_entry_pa: usize) -> Result<(), MapError> {
-        // Trampoline 页：可读可执行（用户态 + 内核态都可访问）
+        // TODO(student): 映射 trampoline 页到用户地址空间顶部
+        // 提示:
+        //   - Trampoline 页不带 U 标志（仅内核可执行）
+        //   - 标志: VALID | READ | EXECUTE（可读可执行）
+        //   - 使用 map_kernel_page 而非 map_user_page（不自动添加 U 标志）
+        // Trampoline 页：可读可执行（内核态可访问，用户态通过 trampoline 代码间接使用）
         let flags = PteFlags(PteFlags::VALID | PteFlags::READ | PteFlags::EXECUTE);
         // SAFETY: 调用者确保 trap_entry_pa 有效
         unsafe {
@@ -1070,6 +1087,8 @@ impl UserAddrSpace {
     ///
     /// 调用者必须确保页表已正确初始化，且当前不在用户态。
     pub unsafe fn activate(&self) {
+        // TODO(student): 激活此用户页表（切换 satp 寄存器）
+        // 提示: 调用 switch_page_table(root_ppn)，会自动执行 sfence.vma 刷新 TLB
         // SAFETY: root_ppn 指向有效的 SV39 页表
         unsafe {
             super::switch_page_table(self.root_ppn);
@@ -1085,4 +1104,268 @@ fn read_satp_current() -> usize {
         core::arch::asm!("csrr {}, satp", out(reg) satp, options(nomem, nostack));
     }
     satp
+}
+
+// ============================================================================
+// 页表测试
+// ============================================================================
+
+/// 运行 SV39 页表测试
+///
+/// 测试页表的核心操作：映射、翻译、解映射。
+/// 在内核启动后调用，验证页表实现的正确性。
+///
+/// ## 教学概念：内核测试
+///
+/// 内核代码不能使用标准测试框架（`#[test]`），因为没有操作系统支持。
+/// 我们编写独立的测试函数，通过 UART 输出结果。
+///
+/// 测试用例：
+/// 1. 分配物理帧并验证清零
+/// 2. 创建页表映射（VA → PA）
+/// 3. 翻译验证（translate_va 返回正确的 PA）
+/// 4. 解映射后翻译返回错误
+/// 5. lookup_page 返回正确的 PPN 和 flags
+pub fn run_tests() {
+    use crate::uart_putchar;
+    use crate::uart_puts;
+
+    let mut passed = 0u32;
+    let mut failed = 0u32;
+
+    // --- Test 1: alloc_zeroed_frame ---
+    uart_puts("  [test] alloc_zeroed_frame...");
+    match alloc_zeroed_frame() {
+        Some(ppn) => {
+            let pa = ppn * PAGE_SIZE;
+            // 验证帧已清零
+            let mut all_zero = true;
+            for i in 0..PAGE_SIZE / 8 {
+                // SAFETY: 刚分配的帧，独占访问
+                let val = unsafe { core::ptr::read((pa + i * 8) as *const u64) };
+                if val != 0 {
+                    all_zero = false;
+                    break;
+                }
+            }
+            if all_zero {
+                uart_puts(" OK\n");
+                passed += 1;
+            } else {
+                uart_puts(" FAIL (not zeroed)\n");
+                failed += 1;
+            }
+        }
+        None => {
+            uart_puts(" FAIL (alloc returned None)\n");
+            failed += 1;
+        }
+    }
+
+    // --- Test 2: map_page + translate_va ---
+    uart_puts("  [test] map_page + translate_va...");
+    // 使用高虚拟地址避免与内核 1GB 大页冲突
+    let test_va: usize = 0x0000_0040_0000_0000; // USER_TOP
+    let test_frame = alloc_zeroed_frame();
+    match test_frame {
+        Some(test_ppn) => {
+            let test_pa = test_ppn * PAGE_SIZE;
+            let pt_ppn = alloc_zeroed_frame();
+            match pt_ppn {
+                Some(root_ppn) => {
+                    let flags = PteFlags(PteFlags::VALID | PteFlags::READ | PteFlags::WRITE);
+                    let map_result = map_page(
+                        test_va,
+                        test_pa,
+                        flags,
+                        root_ppn,
+                        phys_read_u64,
+                        phys_write_u64,
+                        alloc_zeroed_frame,
+                    );
+                    match map_result {
+                        Ok(()) => {
+                            let translate_result =
+                                translate_va(test_va, root_ppn, phys_read_u64);
+                            match translate_result {
+                                Ok(translated_pa) if translated_pa == test_pa => {
+                                    uart_puts(" OK\n");
+                                    passed += 1;
+                                }
+                                Ok(wrong_pa) => {
+                                    uart_puts(" FAIL (wrong PA: ");
+                                    print_hex(wrong_pa);
+                                    uart_puts(")\n");
+                                    failed += 1;
+                                }
+                                Err(e) => {
+                                    uart_puts(" FAIL (translate error)\n");
+                                    let _ = e;
+                                    failed += 1;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            uart_puts(" FAIL (map error)\n");
+                            let _ = e;
+                            failed += 1;
+                        }
+                    }
+                }
+                None => {
+                    uart_puts(" FAIL (pt alloc)\n");
+                    failed += 1;
+                }
+            }
+        }
+        None => {
+            uart_puts(" FAIL (frame alloc)\n");
+            failed += 1;
+        }
+    }
+
+    // --- Test 3: unmap_page ---
+    uart_puts("  [test] unmap_page...");
+    let test_va2: usize = 0x0000_0040_0000_1000;
+    let test_frame2 = alloc_zeroed_frame();
+    let pt_ppn2 = alloc_zeroed_frame();
+    match (test_frame2, pt_ppn2) {
+        (Some(test_ppn2), Some(root_ppn2)) => {
+            let test_pa2 = test_ppn2 * PAGE_SIZE;
+            let flags = PteFlags(PteFlags::VALID | PteFlags::READ);
+            let map_ok = map_page(
+                test_va2,
+                test_pa2,
+                flags,
+                root_ppn2,
+                phys_read_u64,
+                phys_write_u64,
+                alloc_zeroed_frame,
+            )
+            .is_ok();
+
+            if map_ok {
+                let unmap_result =
+                    unmap_page(test_va2, root_ppn2, phys_read_u64, phys_write_u64);
+                match unmap_result {
+                    Ok(()) => {
+                        let translate_result =
+                            translate_va(test_va2, root_ppn2, phys_read_u64);
+                        match translate_result {
+                            Err(_) => {
+                                uart_puts(" OK\n");
+                                passed += 1;
+                            }
+                            Ok(pa) => {
+                                uart_puts(" FAIL (still mapped to ");
+                                print_hex(pa);
+                                uart_puts(")\n");
+                                failed += 1;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        uart_puts(" FAIL (unmap error)\n");
+                        let _ = e;
+                        failed += 1;
+                    }
+                }
+            } else {
+                uart_puts(" FAIL (map setup)\n");
+                failed += 1;
+            }
+        }
+        _ => {
+            uart_puts(" FAIL (alloc)\n");
+            failed += 1;
+        }
+    }
+
+    // --- Test 4: lookup_page ---
+    uart_puts("  [test] lookup_page...");
+    let test_va3: usize = 0x0000_0040_0000_2000;
+    let test_frame3 = alloc_zeroed_frame();
+    let pt_ppn3 = alloc_zeroed_frame();
+    match (test_frame3, pt_ppn3) {
+        (Some(test_ppn3), Some(root_ppn3)) => {
+            let test_pa3 = test_ppn3 * PAGE_SIZE;
+            let flags = PteFlags(PteFlags::VALID | PteFlags::READ | PteFlags::EXECUTE);
+            let map_ok = map_page(
+                test_va3,
+                test_pa3,
+                flags,
+                root_ppn3,
+                phys_read_u64,
+                phys_write_u64,
+                alloc_zeroed_frame,
+            )
+            .is_ok();
+
+            if map_ok {
+                let lookup_result = lookup_page(test_va3, root_ppn3, phys_read_u64);
+                match lookup_result {
+                    Ok((ppn, found_flags)) => {
+                        let expected_ppn = test_pa3 / PAGE_SIZE;
+                        if ppn == expected_ppn
+                            && found_flags.contains(PteFlags::VALID)
+                            && found_flags.contains(PteFlags::READ)
+                            && found_flags.contains(PteFlags::EXECUTE)
+                        {
+                            uart_puts(" OK\n");
+                            passed += 1;
+                        } else {
+                            uart_puts(" FAIL (ppn or flags mismatch)\n");
+                            failed += 1;
+                        }
+                    }
+                    Err(e) => {
+                        uart_puts(" FAIL (lookup error)\n");
+                        let _ = e;
+                        failed += 1;
+                    }
+                }
+            } else {
+                uart_puts(" FAIL (map setup)\n");
+                failed += 1;
+            }
+        }
+        _ => {
+            uart_puts(" FAIL (alloc)\n");
+            failed += 1;
+        }
+    }
+
+    // --- 汇总 ---
+    uart_puts("  [test] page table: ");
+    uart_putchar(b'0' + passed as u8);
+    uart_puts(" passed, ");
+    uart_putchar(b'0' + failed as u8);
+    uart_puts(" failed\n");
+
+    if failed > 0 {
+        crate::uart_puts("[suba] PAGE TABLE TESTS FAILED!\n");
+        loop {
+            unsafe { core::arch::asm!("wfi") }
+        }
+    }
+}
+
+/// 打印十六进制数字（调试辅助）
+fn print_hex(val: usize) {
+    use crate::uart_putchar;
+    uart_putchar(b'0');
+    uart_putchar(b'x');
+    let mut started = false;
+    for i in (0..16).rev() {
+        let nibble = (val >> (i * 4)) & 0xF;
+        if nibble != 0 || started || i == 0 {
+            started = true;
+            let c = if nibble < 10 {
+                b'0' + nibble as u8
+            } else {
+                b'a' + (nibble - 10) as u8
+            };
+            uart_putchar(c);
+        }
+    }
 }
