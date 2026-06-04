@@ -23,6 +23,9 @@ use suba_kernel::arch::{Context, CpuOps, HwTrapFrame, SyscallFrame};
 // 包含上下文切换汇编代码
 core::arch::global_asm!(include_str!("switch.S"));
 
+// 包含陷阱入口/恢复汇编代码
+core::arch::global_asm!(include_str!("trap.S"));
+
 // RISC-V 上下文切换的 extern 汇编入口
 // 在 switch.S 中实现，保存 callee-saved 寄存器到 old_ctx，
 // 从 new_ctx 恢复寄存器并跳转。
@@ -30,6 +33,30 @@ core::arch::global_asm!(include_str!("switch.S"));
 // Safety: old_ctx 和 new_ctx 必须指向有效的、正确对齐的 Context 结构体。
 unsafe extern "C" {
     pub fn switch(old_ctx: *mut Context, new_ctx: *const Context);
+}
+
+// 陷阱入口/恢复的 extern 汇编入口
+// trap_entry: 由硬件通过 stvec 跳转，保存全部寄存器到 TrapFrame，调用 trap_handler
+// trap_return: 从 TrapFrame 恢复全部寄存器，执行 sret 返回
+//
+// Safety: 调用 trap_return 时 a0 必须指向有效的 TrapFrame
+unsafe extern "C" {
+    pub fn trap_entry();
+    pub fn trap_return(trap_frame: *mut TrapFrame);
+}
+
+/// trap_handler — 陷阱处理函数（由 trap_entry.S 调用）
+///
+/// 目前为空实现，后续 feature (7.9) 会填充 scause 分发逻辑。
+///
+/// # Safety
+/// 必须从 trap_entry.S 中以正确的 TrapFrame 指针调用。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn trap_handler(_trap_frame: *mut TrapFrame) {
+    // TODO(feature 7.9): 根据 scause 分发中断/异常处理
+    // 1. 读取 scause 寄存器判断陷阱类型
+    // 2. 异常: ecall → 系统调用
+    // 3. 中断: timer → 时钟中断, external → PLIC
 }
 
 // ---------------------------------------------------------------------------

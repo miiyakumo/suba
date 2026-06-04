@@ -1423,7 +1423,7 @@
       "name": "实现 trap.S trap 入口",
       "description": "在 os/src/arch/riscv64/trap.S 中实现 trap 入口汇编：保存所有寄存器到 TrapFrame、设置内核栈、调用 trap_handler、恢复寄存器、sret 返回。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/7.8-trap-entry.S",
