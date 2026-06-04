@@ -536,6 +536,56 @@ impl Uart {
 }
 
 // ============================================================================
+// Console trait 实现
+// ============================================================================
+
+/// UART 控制台 — 实现 kernel 的 Console trait
+///
+/// 将 Console trait 的 putchar/getchar 映射到 UART MMIO 操作。
+/// 使用 UART0 静态实例，无需额外状态。
+///
+/// ## 教学概念：trait 桥接
+///
+/// kernel 定义了平台无关的 `Console` trait（接口），
+/// 每个硬件后端提供具体实现（UART、Mock、SBI 等）。
+/// 这就是 **依赖倒置原则**：kernel 依赖抽象接口，不依赖具体实现。
+///
+/// ```text
+/// kernel (trait Console) ← 抽象接口
+///     ├── mock::MockConsole    ← 宿主机测试
+///     └── uart::UartConsole    ← RISC-V 硬件 (本文件)
+/// ```
+pub struct UartConsole;
+
+/// 全局 UART 实例
+static CONSOLE_UART: Uart = Uart::new(UART0_BASE);
+
+impl suba_kernel::driver::Console for UartConsole {
+    /// 输出一个字节（轮询模式）
+    fn putchar(c: u8) {
+        CONSOLE_UART.putchar(c);
+    }
+
+    /// 读取一个字节
+    ///
+    /// 优先从缓冲区读取（中断模式），无数据时返回 None。
+    fn getchar() -> Option<u8> {
+        let mut buf = RX_BUFFER.lock();
+        buf.pop()
+    }
+
+    /// 输出字符串（使用默认实现：逐字节 putchar）
+    fn puts(s: &str) {
+        for b in s.bytes() {
+            if b == b'\n' {
+                CONSOLE_UART.putchar(b'\r');
+            }
+            CONSOLE_UART.putchar(b);
+        }
+    }
+}
+
+// ============================================================================
 // 编译期验证
 // ============================================================================
 

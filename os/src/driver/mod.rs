@@ -18,3 +18,9 @@
 //! 因此必须使用 `volatile` 访问，防止编译器优化掉"看似无用"的读写。
 
 pub mod uart;
+
+/// UART Console 类型别名
+///
+/// 实现了 kernel 的 `Console` trait，用于 RISC-V 硬件上的串口 I/O。
+#[allow(dead_code)]
+pub type UartConsole = uart::UartConsole;

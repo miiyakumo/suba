@@ -1,49 +1,32 @@
-// .solution/9.3-uart-getchar.rs — UART 中断驱动接收参考实现
+// =============================================================================
+// Feature 9.3: UART 接收（中断模式）— 参考实现
+// =============================================================================
 //
-// 本文件是 feature 9.3 的参考实现。
-// 学生应在 os/src/driver/uart.rs 中实现中断驱动的 UART 接收。
+// 本文件展示如何实现中断驱动的 UART 接收。
+// 学生需要在 os/src/driver/uart.rs 中完成以下内容：
 //
-// ## 实现要点
-//
-// 1. RxBuffer 环形缓冲区：中断和线程之间传递数据
-// 2. 全局 RX_BUFFER 静态变量
-// 3. Uart::enable_receive_interrupt() — 使能 IER ERBFI 位
-// 4. Uart::handle_interrupt() — 中断处理：读 RBR → 写入缓冲区
-//
-// ## 教学概念：中断驱动 I/O
-//
-// 轮询模式简单但浪费 CPU：线程在等待数据时空转。
-// 中断模式让 CPU 去做其他工作，数据到达时由硬件通知。
-//
-// 数据流：
-//   UART 硬件 → 中断 → PLIC → CPU → trap_handler
-//     → Uart::handle_interrupt() → RBR → RX_BUFFER
-//     → getchar() → 用户程序
-//
-// ## 环形缓冲区
-//
-// 中断处理函数（生产者）和读取函数（消费者）通过环形缓冲区解耦。
-// 中断上下文不能阻塞，缓冲区满时直接丢弃数据。
-//
-// ## NS16550A 中断类型
-//
-// IER (Interrupt Enable Register) 控制四种中断源：
-// - bit 0 (ERBFI): 接收数据就绪 — 数据到达 RBR 时触发
-// - bit 1 (ETBEI): 发送缓冲区空 — THR 空时触发
-// - bit 2 (ELSI):  接收线路状态 — 奇偶校验错误等
-// - bit 3 (EDSSI): 调制解调器状态 — CTS/DSR 变化
-//
-// 我们只需要 ERBFI（接收数据就绪中断）。
+// 1. RxBuffer — 环形缓冲区（中断→线程的数据通道）
+// 2. enable_receive_interrupt() — 配置 IER 使能接收中断
+// 3. handle_interrupt() — 中断处理函数，从 RBR 读数据到缓冲区
+// 4. getchar() — 优先从缓冲区读取，回退到轮询
+// 5. try_getchar() — 非阻塞版本
 
-use spin::Mutex;
+// =============================================================================
+// 第 1 部分：环形缓冲区
+// =============================================================================
 
+/// 接收缓冲区容量
 pub const RX_BUF_SIZE: usize = 256;
 
+/// 环形缓冲区
+///
+/// 教学要点：中断处理函数（生产者）写入数据，线程上下文（消费者）
+/// 读取数据。使用 count 字段跟踪已存数据量，避免读写指针重叠歧义。
 pub struct RxBuffer {
     buf: [u8; RX_BUF_SIZE],
-    read_pos: usize,
-    write_pos: usize,
-    count: usize,
+    read_pos: usize,   // 消费者读取位置
+    write_pos: usize,  // 生产者写入位置
+    count: usize,      // 当前数据量
 }
 
 impl RxBuffer {
@@ -56,9 +39,10 @@ impl RxBuffer {
         }
     }
 
+    /// 写入一个字节，缓冲区满时返回 false
     pub fn push(&mut self, byte: u8) -> bool {
         if self.count >= RX_BUF_SIZE {
-            return false;
+            return false; // 满时丢弃（背压策略）
         }
         self.buf[self.write_pos] = byte;
         self.write_pos = (self.write_pos + 1) % RX_BUF_SIZE;
@@ -66,6 +50,7 @@ impl RxBuffer {
         true
     }
 
+    /// 读取一个字节，缓冲区空时返回 None
     pub fn pop(&mut self) -> Option<u8> {
         if self.count == 0 {
             return None;
@@ -77,22 +62,101 @@ impl RxBuffer {
     }
 }
 
-pub static RX_BUFFER: Mutex<RxBuffer> = Mutex::new(RxBuffer::new());
+/// 全局接收缓冲区，由 spin::Mutex 保护
+pub static RX_BUFFER: spin::Mutex<RxBuffer> = spin::Mutex::new(RxBuffer::new());
 
-// 在 Uart impl 块中添加的方法：
+// =============================================================================
+// 第 2 部分：中断使能方法（在 Uart impl 中）
+// =============================================================================
+
+// 使能接收数据就绪中断
 //
-// pub fn enable_receive_interrupt(&self) {
-//     unsafe { self.write_reg(reg::IER, IerFlags::ERBFI); }
-// }
+// 设置 IER 的 ERBFI (bit 0)。使能后，当 RBR 中有数据时，
+// UART 会拉高 IRQ 线 → PLIC 聚合 → CPU 触发 supervisor external interrupt。
+pub fn enable_receive_interrupt(&self) {
+    unsafe {
+        self.write_reg(reg::IER, IerFlags::ERBFI);
+    }
+}
+
+// 禁用所有中断
+pub fn disable_interrupts(&self) {
+    unsafe {
+        self.write_reg(reg::IER, 0x00);
+    }
+}
+
+// =============================================================================
+// 第 3 部分：中断处理函数（在 Uart impl 中）
+// =============================================================================
+
+// UART 中断处理
 //
-// pub fn disable_interrupts(&self) {
-//     unsafe { self.write_reg(reg::IER, 0x00); }
-// }
+// 从 RBR 读取所有可用数据（FIFO 可能有多个字节），存入 RX_BUFFER。
+// 此函数在 trap_handler 的外部中断路径中调用。
 //
-// pub fn handle_interrupt(&self) {
-//     while self.is_data_ready() {
-//         let byte = self.read_rbr();
-//         let mut buf = RX_BUFFER.lock();
-//         buf.push(byte);
+// 调用链：CPU trap → trap_handler(scause=9) → PLIC claim → uart.handle_interrupt()
+pub fn handle_interrupt(&self) {
+    while self.is_data_ready() {
+        let byte = self.read_rbr();
+        let mut buf = RX_BUFFER.lock();
+        buf.push(byte); // 满时丢弃
+    }
+}
+
+// =============================================================================
+// 第 4 部分：中断驱动的 getchar（在 Uart impl 中）
+// =============================================================================
+
+// 阻塞接收：优先从缓冲区读取，回退到轮询
+//
+// 设计理由：
+// - 中断启用时：数据在中断中进入缓冲区，getchar 从缓冲区读取（高效）
+// - 中断未启用时：回退到轮询（兼容初始化阶段和无 PLIC 的场景）
+pub fn getchar(&self) -> u8 {
+    // 1. 先尝试从缓冲区读取
+    {
+        let mut buf = RX_BUFFER.lock();
+        if let Some(byte) = buf.pop() {
+            return byte;
+        }
+    }
+    // 2. 缓冲区空 → 回退到轮询
+    while !self.is_data_ready() {}
+    self.read_rbr()
+}
+
+// 非阻塞接收
+//
+// 仅检查缓冲区，无数据立即返回 None。
+// 适用于事件循环中非阻塞检查输入。
+pub fn try_getchar(&self) -> Option<u8> {
+    let mut buf = RX_BUFFER.lock();
+    buf.pop()
+}
+
+// =============================================================================
+// 第 5 部分：trap_handler 中的外部中断处理
+// =============================================================================
+
+// 在 os/src/arch/riscv64/mod.rs 的 trap_handler 中：
+//
+// scause 9 (Supervisor external interrupt) 的处理需要：
+// 1. PLIC claim — 读取中断源编号
+// 2. 根据中断源分发到对应驱动（如 UART IRQ=10）
+// 3. PLIC complete — 写回中断源编号
+//
+// 注：PLIC 初始化（9.7）和 claim/complete（9.8）是后续 feature。
+// 9.3 只需确保 UART 侧的中断处理代码就绪。
+//
+// 示例（后续 feature 完善 PLIC 后）：
+// ```rust
+// 9 => {
+//     let claim = plic_claim();
+//     match claim {
+//         10 => uart.handle_interrupt(),  // UART0 IRQ
+//         _ => {}
 //     }
+//     plic_complete(claim);
 // }
+// ```
