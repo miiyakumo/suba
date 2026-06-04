@@ -1780,7 +1780,7 @@
       "name": "PLIC 外部中断处理",
       "description": "实现外部中断处理：读取 claim 寄存器获取中断号，根据中断号分发到对应设备驱动（如 UART），完成后写入 claim 寄存器通知 PLIC。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.8-plic-handler.rs",

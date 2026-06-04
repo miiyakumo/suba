@@ -226,6 +226,24 @@ pub fn init() {
 
     // 在 S-mode context 使能 UART0 中断
     enable_irq(S_MODE_CONTEXT, UART0_IRQ);
+
+    // 使能 Supervisor external interrupt
+    // sie (Supervisor Interrupt Enable) 寄存器的 bit 9 是 SEIE
+    // (Supervisor External Interrupt Enable)
+    //
+    // ## 教学概念：sie.SEIE
+    //
+    // 即使 PLIC 配置正确，如果 sie.SEIE = 0，
+    // 外部中断也不会传递到 S-mode。这是 S-mode 中断的总开关之一。
+    //
+    // SAFETY: 设置 sie.SEIE 位，允许外部中断传递到 S-mode
+    unsafe {
+        core::arch::asm!(
+            "csrs sie, {0}",
+            in(reg) 1 << 9,
+            options(nomem, nostack)
+        );
+    }
 }
 
 /// 处理外部中断
@@ -255,7 +273,9 @@ pub fn handle_external_interrupt() {
     match source as usize {
         UART0_IRQ => {
             // UART0 中断：调用 UART 的中断处理函数
-            crate::driver::uart::UartConsole::handle_interrupt();
+            // 通过 UART MMIO 实例读取接收数据并存入缓冲区
+            let uart = crate::driver::uart::Uart::new(crate::driver::uart::UART0_BASE);
+            uart.handle_interrupt();
         }
         _ => {
             // 未知中断源，忽略
