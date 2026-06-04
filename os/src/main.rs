@@ -177,6 +177,17 @@ pub extern "C" fn rust_main() -> ! {
     unsafe { GLOBAL_ALLOC.init(heap_start, heap::HEAP_SIZE) };
     uart_puts("[suba] heap initialized\n");
 
+    // ---- Step 2.5: 初始化物理帧分配器 ----
+    // 帧分配器管理堆区域之后的物理内存，用于分配用户页表和用户内存页
+    let frame_alloc_start = heap_start + heap::HEAP_SIZE;
+    let frame_alloc_end = suba_kernel::mm::address::PHYS_MEMORY_START
+        + suba_kernel::mm::address::PHYS_MEMORY_SIZE;
+    // SAFETY: 单线程启动阶段，仅调用一次
+    unsafe {
+        arch::riscv64::page::init_frame_allocator(frame_alloc_start, frame_alloc_end);
+    }
+    uart_puts("[suba] frame allocator initialized\n");
+
     // ---- Step 3: 初始化内核页表 ----
     // 创建 SV39 身份映射页表并激活分页
     // 这将建立虚拟地址到物理地址的翻译（当前 VA=PA）
