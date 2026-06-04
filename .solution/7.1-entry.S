@@ -11,8 +11,6 @@ _start:
     # sbss/ebss 是链接脚本中 BSS 段的起止地址
     la t0, sbss              # t0 = BSS 起始地址
     la t1, ebss              # t1 = BSS 结束地址
-    # TODO(student): 实现 BSS 清零循环
-    # 提示：用 sd 指令每次清零 8 字节，t0 递增直到 t0 >= t1
 .Lclear_bss:
     bgeu t0, t1, .Lbss_done  # 如果 t0 >= t1，清零完成
     sd zero, 0(t0)           # 将 8 字节零写入 [t0]

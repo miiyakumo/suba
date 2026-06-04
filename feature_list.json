@@ -1302,8 +1302,8 @@
       "name": "RISC-V 内核入口 entry.S",
       "description": "在 os/src/entry.S 中实现内核入口点：设置栈指针（la sp, boot_stack_top）、清零 BSS 段、跳转到 rust_main。理解 CPU 从复位到第一条 Rust 指令的过程。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/7.1-entry.S",
       "student_todo": [

@@ -1,11 +1,16 @@
 /// 用于在早期阶段打印调试信息的控制台模块
+///
+/// 提供 `eprint!` 和 `eprintln!` 宏，通过 SBI 调用输出到控制台。
+/// 这些函数通过宏间接使用，编译器无法追踪调用链。
 
 use core::fmt::{self, Write};
 
+#[allow(dead_code)]
 fn console_putchar(c: u8) {
     sbi_rt::console_write_byte(c);
 }
 
+#[allow(dead_code)]
 pub struct Stdout;
 
 impl Write for Stdout {
@@ -17,6 +22,7 @@ impl Write for Stdout {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn print(args: fmt::Arguments) {
     Stdout.write_fmt(args).unwrap();
 }
