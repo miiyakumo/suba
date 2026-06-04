@@ -1810,7 +1810,7 @@
       "name": "MMIO 读写辅助工具",
       "description": "在 os/src/util/mod.rs 中实现 MMIO 读写辅助函数：read_volatile 和 write_volatile 的安全封装。理解 volatile 读写的意义——防止编译器优化掉硬件访问。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.10-mmio-util.rs",

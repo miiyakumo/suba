@@ -25,6 +25,7 @@ mod arch;
 mod power;
 mod debug_console;
 mod driver;
+mod util;
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
