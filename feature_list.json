@@ -1055,9 +1055,20 @@
       "name": "定义 VfsFile trait",
       "description": "在 kernel/src/fs/mod.rs 中定义 VfsFile trait，包含 read()、write()、size() 方法。理解 VFS 抽象如何统一不同的文件系统实现。",
       "test": "cargo test --features mock -p suba-kernel -- fs::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "VfsFile trait 定义完整(read/write/size), fs 测试全部通过"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "trait 有文档注释, 模块级注释含 VFS 教学概念"
+        }
+      ],
       "solution": ".solution/6.1-vfs-trait.rs",
       "student_todo": [
         "kernel/src/fs/mod.rs:VfsFile trait"
@@ -1070,9 +1081,20 @@
       "name": "实现文件描述符表 FdTable",
       "description": "在 kernel/src/fs/mod.rs 中实现 FdTable 结构体，管理文件描述符的打开、关闭和查找。使用 Vec<Option<Box<dyn VfsFile>>> 存储。",
       "test": "cargo test --features mock -p suba-kernel -- fs::tests::fd_table_open_close",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "fd_table_open_close 测试通过, FdTable open/close/get 完整实现"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "FdTable 有文档注释, 接口设计清晰(open/close/get/get_mut)"
+        }
+      ],
       "solution": ".solution/6.2-fd-table.rs",
       "student_todo": [
         "kernel/src/fs/mod.rs:FdTable 实现"
@@ -1085,9 +1107,20 @@
       "name": "FdTable 槽位复用",
       "description": "实现 FdTable 的 close 和槽位复用逻辑。关闭文件描述符后，新 open 应复用空闲槽位。编写测试验证。",
       "test": "cargo test --features mock -p suba-kernel -- fs::tests::fd_table_reuse_slot",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "fd_table_reuse_slot 测试通过, close 后 open 复用同一 fd"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "solution 含槽位复用教学注释"
+        }
+      ],
       "solution": ".solution/6.3-fd-reuse.rs",
       "student_todo": [
         "kernel/src/fs/mod.rs:FdTable::close, open 复用逻辑"
