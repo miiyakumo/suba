@@ -17,6 +17,8 @@
 
 #![allow(unused)] // 后续 feature 会使用这些声明
 
+pub mod page;
+
 use core::arch::asm;
 use suba_kernel::arch::{Context, CpuOps, HwTrapFrame, SyscallFrame};
 

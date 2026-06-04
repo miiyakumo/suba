@@ -1513,9 +1513,12 @@
       "name": "定义 SV39 页表结构",
       "description": "在 os/src/arch/riscv64/page.rs 中定义 SV39 页表项结构（PTE，64位），包含 PPN（44位）和标志位（V/R/W/X/U/G/A/D）。理解 SV39 三级页表的层次结构。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, PTE 大小 8 字节对齐正确, PPN 掩码/偏移遵循 SV39 规范, new_leaf/new_table 构造正确",
+        "pedagogy: SV39 虚拟地址格式图示完整, PTE 位布局注释清晰, 教学概念解释硬件直接解释 PTE, .solution/ 完整"
+      ],
       "solution": ".solution/8.1-sv39-pte.rs",
       "student_todo": [
         "os/src/arch/riscv64/page.rs:PTE 结构"
