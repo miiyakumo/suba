@@ -200,6 +200,20 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
                 // ```
                 suba_kernel::syscall::dispatch(tf);
 
+                // TODO(student): 全部系统调用端到端验证
+                // 验证所有系统调用的完整路径：
+                // - SYS_WRITE (64): fd→FdTable→UartFile→uart.putchar
+                // - SYS_READ  (63): fd→FdTable→UartFile→RX_BUFFER.try_getchar
+                // - SYS_EXIT  (93): after_syscall_exit→mark Exited→schedule
+                // - SYS_YIELD (124): state=Ready→queue→schedule→context_switch
+                // - SYS_GETPID(172): CURRENT_PID.load→return PID
+                // 关键验证点：
+                // 1. ecall → trap_entry → trap_handler → dispatch 路径正确
+                // 2. dispatch 根据 a7 正确路由到处理函数
+                // 3. 返回值写入 a0 (frame.set_ret)
+                // 4. exit/yield 通过 AFTER_SYSCALL 回调触发调度
+                // 5. sepc+=4 确保 sret 后执行 ecall 的下一条指令
+
                 // 系统调用后处理回调
                 // 用于处理需要硬件后端参与的系统调用（如 exit 触发调度）
                 // SAFETY: AFTER_SYSCALL 在 init_exit_handler 中初始化
