@@ -1,66 +1,81 @@
-// .solution/10.3-load-segments.rs — 段加载到内存参考实现
-//
-// 本文件是 feature 10.3 的参考实现。
-// 学生应在 kernel/src/loader/mod.rs 中实现段加载。
-//
-// ## 实现要点
-//
-// 1. copy_segment() — 将单个 PT_LOAD 段从 ELF 数据复制到目标内存
-// 2. load_elf_segments() — 高层接口：解析 ELF → 遍历 PT_LOAD → 复制段
-// 3. BSS 处理：p_memsz > p_filesz 时，多余部分清零
-//
-// ## 教学概念：段加载过程
-//
-// 加载器将 ELF 文件中的 PT_LOAD 段复制到内存中正确的位置。
-// 过程如下：
-//
-//   ELF 文件                     内存 (p_vaddr)
-//   ┌──────────────┐            ┌──────────────┐
-//   │ p_offset     │  ──copy──→ │ p_vaddr      │  p_filesz 字节
-//   │ (p_filesz)   │            │              │
-//   └──────────────┘            ├──────────────┤
-//                               │  BSS 区域    │  (p_memsz - p_filesz) 字节清零
-//                               │  (零填充)    │
-//                               └──────────────┘
-//
-// 当 p_memsz > p_filesz 时，多出的部分是 BSS 段（未初始化全局变量），
-// 加载器必须将其清零。这是 C 语言规范的要求。
+//! # 参考实现：ELF 段加载到内存
+//!
+//! 本文件展示如何将 ELF 的 PT_LOAD 段复制到用户地址空间。
+//!
+//! ## 核心思路
+//!
+//! 对每个 PT_LOAD 段：
+//! 1. 转换 ELF 权限标志 (PF_R/W/X) → PTE 标志 (READ/WRITE/EXECUTE)
+//! 2. 逐页分配物理帧（alloc_zeroed_frame 自动清零 → BSS 天然为零）
+//! 3. 从 ELF 数据复制文件内容到物理帧（内核身份映射，直接写 PA）
+//! 4. 映射物理帧到用户虚拟地址空间（自动添加 U 标志）
 
-// === copy_segment 参考实现 ===
-//
-// pub unsafe fn copy_segment(
-//     data: &[u8],
-//     phdr: &ProgramHeader64,
-//     dst: *mut u8,
-// ) -> Result<(), ElfError> {
-//     let offset = phdr.offset();
-//     let filesz = phdr.file_size();
-//     let memsz = phdr.mem_size();
-//
-//     let end = offset.checked_add(filesz).ok_or(ElfError::PhdrOutOfBounds)?;
-//     if end > data.len() {
-//         return Err(ElfError::PhdrOutOfBounds);
-//     }
-//
-//     if filesz > 0 {
-//         // SAFETY: 调用者确保 dst 足够大，data 范围已验证
-//         unsafe {
-//             core::ptr::copy_nonoverlapping(
-//                 data[offset..offset + filesz].as_ptr(),
-//                 dst,
-//                 filesz,
-//             );
-//         }
-//     }
-//
-//     if memsz > filesz {
-//         let bss_start = dst.add(filesz);
-//         let bss_size = memsz - filesz;
-//         // SAFETY: 调用者确保 dst 指向至少 memsz 字节的可写内存
-//         unsafe {
-//             core::ptr::write_bytes(bss_start, 0, bss_size);
-//         }
-//     }
-//
-//     Ok(())
-// }
+use suba_kernel::loader::ProgramHeader64;
+
+/// 将 PT_LOAD 段加载到用户地址空间
+pub fn load_segments(
+    elf_data: &[u8],
+    phdrs: &[ProgramHeader64],
+    user_space: &crate::arch::riscv64::page::UserAddrSpace,
+) -> Result<(), ()> {
+    use crate::arch::riscv64::page::{PteFlags, PAGE_SIZE, alloc_zeroed_frame};
+    use suba_kernel::loader::segment_flags;
+
+    for phdr in phdrs {
+        if !phdr.is_load() {
+            continue;
+        }
+
+        let vaddr = phdr.vaddr();
+        let file_size = phdr.file_size();
+        let mem_size = phdr.mem_size();
+        let offset = phdr.offset();
+
+        if file_size > mem_size {
+            return Err(());
+        }
+
+        // 转换 ELF 标志 → PTE 标志
+        let mut pte_bits = PteFlags::VALID;
+        if phdr.p_flags & segment_flags::PF_R != 0 { pte_bits |= PteFlags::READ; }
+        if phdr.p_flags & segment_flags::PF_W != 0 { pte_bits |= PteFlags::WRITE; }
+        if phdr.p_flags & segment_flags::PF_X != 0 { pte_bits |= PteFlags::EXECUTE; }
+        let flags = PteFlags(pte_bits);
+
+        let num_pages = mem_size.div_ceil(PAGE_SIZE);
+
+        for i in 0..num_pages {
+            let page_va = vaddr + i * PAGE_SIZE;
+            let page_file_offset = i * PAGE_SIZE;
+
+            // 分配物理帧并清零
+            let ppn = alloc_zeroed_frame().ok_or(())?;
+            let pa = ppn * PAGE_SIZE;
+
+            // 复制文件数据
+            if page_file_offset < file_size {
+                let src_start = offset + page_file_offset;
+                let copy_len = core::cmp::min(PAGE_SIZE, file_size - page_file_offset);
+                let src_end = src_start + copy_len;
+                if src_end > elf_data.len() { return Err(()); }
+
+                // SAFETY: pa 是刚分配的物理帧，身份映射下 VA=PA
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        elf_data[src_start..src_end].as_ptr(),
+                        pa as *mut u8,
+                        copy_len,
+                    );
+                }
+            }
+
+            // 映射到用户地址空间
+            // SAFETY: pa 指向刚分配的有效物理帧
+            unsafe {
+                user_space.map_user_page(page_va, pa, flags).map_err(|_| ())?;
+            }
+        }
+    }
+
+    Ok(())
+}

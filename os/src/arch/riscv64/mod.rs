@@ -1061,3 +1061,124 @@ pub unsafe fn switch_page_table(root_ppn: usize) {
         );
     }
 }
+
+// ============================================================================
+// ELF 段加载
+// ============================================================================
+
+/// 将 ELF PT_LOAD 段加载到用户地址空间
+///
+/// 遍历所有 PT_LOAD 段，为每个段：
+/// 1. 分配物理帧（`alloc_zeroed_frame`）
+/// 2. 从 ELF 数据复制文件内容到物理帧（内核身份映射，直接写物理地址）
+/// 3. 处理 BSS 段（`p_memsz > p_filesz` 的部分已由 `alloc_zeroed_frame` 清零）
+/// 4. 将物理帧映射到用户地址空间（`map_user_page`，自动添加 U 标志）
+///
+/// ## 教学概念：加载过程
+///
+/// ```text
+/// ELF 文件                    物理内存                  用户虚拟地址空间
+/// ┌──────────┐               ┌──────────┐              ┌──────────┐
+/// │ .text    │  ──copy──→    │ frame 0  │  ──map──→    │ 0x10000  │ R+X
+/// │ .rodata  │  ──copy──→    │ frame 1  │  ──map──→    │ 0x11000  │ R
+/// │ .data    │  ──copy──→    │ frame 2  │  ──map──→    │ 0x12000  │ R+W
+/// │ .bss     │  ──zero──→    │ frame 3  │  ──map──→    │ 0x13000  │ R+W
+/// └──────────┘               └──────────┘              └──────────┘
+/// ```
+///
+/// # 参数
+/// - `elf_data`: ELF 文件的原始字节
+/// - `phdrs`: 已解析的程序头列表
+/// - `user_space`: 用户地址空间（页表）
+///
+/// # 返回值
+/// 成功返回 `Ok(())`，失败返回 `Err(())`。
+pub fn load_segments(
+    elf_data: &[u8],
+    phdrs: &[suba_kernel::loader::ProgramHeader64],
+    user_space: &page::UserAddrSpace,
+) -> Result<(), ()> {
+    use page::{PteFlags, PAGE_SIZE, alloc_zeroed_frame};
+    use suba_kernel::loader::segment_flags;
+
+    for phdr in phdrs {
+        if !phdr.is_load() {
+            continue;
+        }
+
+        let vaddr = phdr.vaddr();
+        let file_size = phdr.file_size();
+        let mem_size = phdr.mem_size();
+        let offset = phdr.offset();
+
+        // p_filesz 不能超过 p_memsz
+        if file_size > mem_size {
+            return Err(());
+        }
+
+        // 转换 ELF 权限标志为 PTE 标志
+        let flags = elf_flags_to_pte_flags(phdr.p_flags);
+
+        // 逐页处理：分配帧 → 复制数据 → 映射
+        let num_pages = mem_size.div_ceil(PAGE_SIZE);
+
+        for i in 0..num_pages {
+            let page_va = vaddr + i * PAGE_SIZE;
+            let page_file_offset = i * PAGE_SIZE;
+
+            // 分配物理帧并清零（BSS 部分自然为零）
+            let ppn = alloc_zeroed_frame().ok_or(())?;
+            let pa = ppn * PAGE_SIZE;
+
+            // 从 ELF 数据复制文件内容到物理帧
+            if page_file_offset < file_size {
+                let src_start = offset + page_file_offset;
+                let copy_len = core::cmp::min(PAGE_SIZE, file_size - page_file_offset);
+                let src_end = src_start + copy_len;
+
+                // 边界检查
+                if src_end > elf_data.len() {
+                    return Err(());
+                }
+
+                // SAFETY: pa 是刚分配的物理帧，内核使用身份映射（VA=PA）
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        elf_data[src_start..src_end].as_ptr(),
+                        pa as *mut u8,
+                        copy_len,
+                    );
+                }
+            }
+            // p_memsz > p_filesz 的部分保持为零（alloc_zeroed_frame 已清零）
+
+            // 映射到用户地址空间（自动添加 U 标志）
+            // SAFETY: pa 指向刚分配的有效物理帧
+            unsafe {
+                user_space.map_user_page(page_va, pa, flags).map_err(|_| ())?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// 从 ELF 权限标志转换为 PTE 标志
+///
+/// ELF 使用 PF_R(4) / PF_W(2) / PF_X(1)，
+/// PTE 使用 READ(1<<1) / WRITE(1<<2) / EXECUTE(1<<3)。
+fn elf_flags_to_pte_flags(elf_flags: u32) -> page::PteFlags {
+    use suba_kernel::loader::segment_flags;
+
+    let mut bits = page::PteFlags::VALID;
+    if elf_flags & segment_flags::PF_R != 0 {
+        bits |= page::PteFlags::READ;
+    }
+    if elf_flags & segment_flags::PF_W != 0 {
+        bits |= page::PteFlags::WRITE;
+    }
+    if elf_flags & segment_flags::PF_X != 0 {
+        bits |= page::PteFlags::EXECUTE;
+    }
+    page::PteFlags(bits)
+}
