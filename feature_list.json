@@ -1516,8 +1516,8 @@
       "passes": true,
       "review_status": "approved",
       "review_log": [
-        "correctness: cargo build riscv64 零警告, PTE 大小 8 字节对齐正确, PPN 掩码/偏移遵循 SV39 规范, new_leaf/new_table 构造正确",
-        "pedagogy: SV39 虚拟地址格式图示完整, PTE 位布局注释清晰, 教学概念解释硬件直接解释 PTE, .solution/ 完整"
+        "correctness: cargo build riscv64 零警告, PTE 格式符合 SV39 规范 (V/R/W/X/U/G/A/D, PPN bit 10-53)",
+        "pedagogy: SV39 虚拟地址/PTE 格式/三级页表翻译流程教学注释完整, 编译期大小验证, Debug 格式化"
       ],
       "solution": ".solution/8.1-sv39-pte.rs",
       "student_todo": [
