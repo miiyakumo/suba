@@ -1185,9 +1185,20 @@
       "name": "实现 RamFs::write",
       "description": "实现 RamFs 的 write 方法。将数据写入当前 offset 位置，必要时扩展 Vec。更新 offset。处理写入位置超出当前长度的情况。",
       "test": "cargo test --features mock -p suba-kernel -- ramfs::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "round": 1,
+          "status": "correctness",
+          "notes": "write handles empty, beyond-end (zero-fill), normal append; no unsafe; no unwrap; all 11 ramfs tests pass"
+        },
+        {
+          "round": 2,
+          "status": "pedagogy",
+          "notes": "TODO marker with step-by-step hints; public API documented; solution file complete"
+        }
+      ],
       "solution": ".solution/6.6-ramfs-write.rs",
       "student_todo": [
         "kernel/src/fs/ramfs.rs:RamFs::write"

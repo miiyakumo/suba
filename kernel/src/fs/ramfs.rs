@@ -69,13 +69,26 @@ impl VfsFile for RamFs {
         Ok(to_read)
     }
 
-    fn write(&mut self, _buf: &[u8]) -> Result<usize, ()> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, ()> {
         // TODO: 学生实现
         // 1. 如果 offset 超出当前长度，扩展 data
         // 2. 将 buf 写入 offset 位置
         // 3. 更新 offset
         // 4. 返回写入的字节数
-        todo!("实现 RamFs::write")
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        // 如果 offset 超出当前长度，用 0 填充
+        if self.offset > self.data.len() {
+            self.data.resize(self.offset, 0);
+        }
+        let end = self.offset + buf.len();
+        if end > self.data.len() {
+            self.data.resize(end, 0);
+        }
+        self.data[self.offset..end].copy_from_slice(buf);
+        self.offset = end;
+        Ok(buf.len())
     }
 
     fn size(&self) -> usize {
@@ -143,5 +156,45 @@ mod tests {
         let mut buf = [0u8; 5];
         let n = fs.read(&mut buf).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn ramfs_write_basic() {
+        let mut fs = RamFs::new();
+        let n = fs.write(&[10, 20, 30]).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(fs.size(), 3);
+        assert_eq!(fs.offset(), 3);
+    }
+
+    #[test]
+    fn ramfs_write_and_read_back() {
+        let mut fs = RamFs::new();
+        fs.write(&[1, 2, 3, 4, 5]).unwrap();
+        fs.seek(0);
+        let mut buf = [0u8; 5];
+        fs.read(&mut buf).unwrap();
+        assert_eq!(buf, [1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn ramfs_write_beyond_end() {
+        let mut fs = RamFs::new();
+        fs.seek(5);
+        fs.write(&[99]).unwrap();
+        assert_eq!(fs.size(), 6);
+        // offset 0..4 应为 0 填充
+        fs.seek(0);
+        let mut buf = [0u8; 6];
+        fs.read(&mut buf).unwrap();
+        assert_eq!(buf, [0, 0, 0, 0, 0, 99]);
+    }
+
+    #[test]
+    fn ramfs_write_empty() {
+        let mut fs = RamFs::new();
+        let n = fs.write(&[]).unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(fs.size(), 0);
     }
 }
