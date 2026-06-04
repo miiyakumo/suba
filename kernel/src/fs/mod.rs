@@ -195,4 +195,36 @@ mod tests {
         table.close(fd1).unwrap();
         assert_eq!(table.get(fd2).unwrap().size(), 3);
     }
+
+    /// 测试：标准文件描述符初始化模式。
+    ///
+    /// 验证 Task 创建时使用的 FdTable 初始化模式：
+    /// fd 0 = stdin, fd 1 = stdout, fd 2 = stderr。
+    ///
+    /// 这个测试验证 FdTable 支持预分配三个标准 fd 的模式，
+    /// 与 Task::new() 中的实现一致。
+    #[test]
+    fn std_fd_initialization() {
+        let mut table = FdTable::new();
+
+        // 模拟 Task::new() 的标准 fd 初始化
+        table.open(Box::new(RamFs::new())); // fd 0: stdin
+        table.open(Box::new(RamFs::new())); // fd 1: stdout
+        table.open(Box::new(RamFs::new())); // fd 2: stderr
+
+        // 验证标准 fd 存在
+        assert!(table.get(0).is_some(), "fd 0 (stdin) 应存在");
+        assert!(table.get(1).is_some(), "fd 1 (stdout) 应存在");
+        assert!(table.get(2).is_some(), "fd 2 (stderr) 应存在");
+        assert!(table.get(3).is_none(), "fd 3 不应存在");
+
+        // 验证可以对 stdout 写入
+        let written = table.get_mut(1).unwrap().write(b"hello").unwrap();
+        assert_eq!(written, 5);
+
+        // 验证可以对 stdin 读取（空文件返回 0）
+        let mut buf = [0u8; 10];
+        let n = table.get_mut(0).unwrap().read(&mut buf).unwrap();
+        assert_eq!(n, 0);
+    }
 }

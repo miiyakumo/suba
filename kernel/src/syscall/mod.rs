@@ -69,8 +69,6 @@ pub fn dispatch<F: crate::arch::SyscallFrame>(frame: &mut F) {
 mod tests {
     use super::*;
     use crate::arch::mock::MockTrapFrame;
-    use crate::fs::ramfs::RamFs;
-    use alloc::boxed::Box;
 
     #[test]
     fn dispatch_unknown_syscall() {
@@ -112,26 +110,14 @@ mod tests {
         assert_eq!(frame.ret, 1);
     }
 
-    /// 集成测试：dispatch 路由 + VFS 操作。
+    /// 集成测试：dispatch 路由验证（不涉及 FdTable）。
     ///
-    /// 由于全局 FD_TABLE 在并行测试间共享，在一个原子测试中覆盖：
-    /// - 所有已定义系统调用号的路由验证
-    /// - sys_write/sys_read 通过 dispatch → FdTable → VfsFile
-    /// - 无效 fd 返回 -1
+    /// 验证不依赖文件描述符的系统调用能正确路由。
+    /// sys_write/sys_read 的 VFS 集成测试在 impl::tests 中覆盖。
     #[test]
-    fn dispatch_all_and_vfs_integration() {
-        // 设置 stdin/stdout/stderr
-        r#impl::with_fd_table(|table| {
-            table.clear();
-            table.open(Box::new(RamFs::new())); // fd 0: stdin
-            table.open(Box::new(RamFs::new())); // fd 1: stdout
-            table.open(Box::new(RamFs::new())); // fd 2: stderr
-        });
-
-        // --- 已知系统调用路由验证 ---
+    fn dispatch_routing() {
+        // 不涉及 FdTable 的系统调用
         let test_cases: &[(usize, &str, [usize; 6])] = &[
-            (number::SYS_WRITE, "write",   [1, 0x8000_0000, 10, 0, 0, 0]),
-            (number::SYS_READ,  "read",    [0, 0x8000_0000, 10, 0, 0, 0]),
             (number::SYS_EXIT,  "exit",    [0, 0, 0, 0, 0, 0]),
             (number::SYS_YIELD, "yield",   [0, 0, 0, 0, 0, 0]),
             (number::SYS_SBRK,  "sbrk",    [4096, 0, 0, 0, 0, 0]),
@@ -152,37 +138,10 @@ mod tests {
             );
         }
 
-        // --- 未知系统调用 ---
+        // 未知系统调用返回 -1
         let mut frame = MockTrapFrame::new();
         frame.syscall_no = 0;
         dispatch(&mut frame);
         assert_eq!(frame.ret, (-1isize) as usize);
-
-        // --- sys_write 写入 stdout ---
-        let mut frame = MockTrapFrame::new();
-        frame.syscall_no = number::SYS_WRITE;
-        frame.args = [1, 0x8000_0000, 42, 0, 0, 0];
-        dispatch(&mut frame);
-        assert_eq!(frame.ret, 42, "sys_write 到 stdout 应返回写入字节数");
-
-        // --- sys_read 从 stdin ---
-        let mut frame = MockTrapFrame::new();
-        frame.syscall_no = number::SYS_READ;
-        frame.args = [0, 0x8000_0000, 10, 0, 0, 0];
-        dispatch(&mut frame);
-        assert_eq!(frame.ret, 0, "sys_read 空 stdin 应返回 0");
-
-        // --- 无效 fd ---
-        let mut frame = MockTrapFrame::new();
-        frame.syscall_no = number::SYS_WRITE;
-        frame.args = [99, 0x8000_0000, 10, 0, 0, 0];
-        dispatch(&mut frame);
-        assert_eq!(frame.ret, (-1isize) as usize, "无效 fd 写入应返回 -1");
-
-        let mut frame = MockTrapFrame::new();
-        frame.syscall_no = number::SYS_READ;
-        frame.args = [99, 0x8000_0000, 10, 0, 0, 0];
-        dispatch(&mut frame);
-        assert_eq!(frame.ret, (-1isize) as usize, "无效 fd 读取应返回 -1");
     }
 }
