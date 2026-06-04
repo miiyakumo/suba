@@ -1675,8 +1675,8 @@
       "name": "UART MMIO 寄存器定义",
       "description": "在 os/src/driver/uart.rs 中定义 NS16550A UART 的 MMIO 寄存器结构。QEMU virt 机器的 UART 基地址为 0x10000000。理解 MMIO——通过读写内存地址来控制硬件。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/9.1-uart-registers.rs",
       "student_todo": [

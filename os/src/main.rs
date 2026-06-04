@@ -24,6 +24,7 @@ core::arch::global_asm!(include_str!("entry.S"));
 mod arch;
 mod power;
 mod debug_console;
+mod driver;
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
