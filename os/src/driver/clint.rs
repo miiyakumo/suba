@@ -80,6 +80,19 @@ pub const MTIME_OFFSET: usize = 0xBFF8;
 /// 设置为 1_000_000 tick ≈ 100ms，提供合理的调度粒度。
 pub const TIMER_INTERVAL: u64 = 1_000_000;
 
+/// 时间片大小（tick 数）
+///
+/// 每 TIME_SLICE_TICKS 个时钟中断触发一次调度。
+/// TIMER_INTERVAL = 1_000_000 tick ≈ 100ms，TICKS_PER_SEC = 10，
+/// 所以 TIME_SLICE_TICKS = 2 意味着每 200ms 调度一次。
+///
+/// ## 教学概念：时间片大小的权衡
+///
+/// - 时间片太小 → 频繁上下文切换，CPU 浪费在保存/恢复寄存器上
+/// - 时间片太大 → 响应性差，交互式任务感觉"卡顿"
+/// - 典型值：10ms - 100ms
+pub const TIME_SLICE_TICKS: usize = 2;
+
 // ============================================================================
 // 时钟 API
 // ============================================================================
@@ -204,11 +217,21 @@ pub fn get_ticks() -> usize {
 ///   → trap_handler 分发到此处
 ///   → 1. 递增 tick 计数
 ///   → 2. 设置下一次中断（维持周期性）
-///   → 3. 后续：检查是否需要调度（时间片用完）
+///   → 3. 检查时间片是否用完
+///   → 4. 如果用完且来自用户态，触发调度
 /// ```
 ///
 /// 这是"滴答驱动"（tick-driven）内核的基础：
 /// 每个 tick 是内核感知时间流逝的最小单位。
+///
+/// ## 教学概念：时间片轮转调度
+///
+/// 每个任务运行 TIME_SLICE_TICKS 个 tick 后被抢占：
+/// 1. 时钟中断递增 tick 计数
+/// 2. 每 TIME_SLICE_TICKS 个 tick 重置计数器并触发调度
+/// 3. 调度器选择下一个就绪任务，通过 context_switch 切换
+///
+/// 这实现了"公平"的 CPU 时间分配：没有任务能独占 CPU。
 pub fn handle_timer_interrupt() {
     // 递增全局 tick 计数
     TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
@@ -216,6 +239,66 @@ pub fn handle_timer_interrupt() {
     // 设置下一次时钟中断（保持周期性）
     set_next_timer();
 
-    // TODO: 时间片调度检查（后续 feature）
-    // 当 tick 计数达到时间片阈值时，触发任务切换
+    // 时间片调度检查
+    // 每 TIME_SLICE_TICKS 个 tick 检查一次是否需要调度
+    let ticks = TIMER_TICKS.load(Ordering::Relaxed);
+    if ticks % TIME_SLICE_TICKS == 0 {
+        // 读取 sstatus 检查是否来自用户态
+        // 只有用户态任务才需要被抢占（内核态任务正在处理系统调用）
+        let sstatus: usize;
+        // SAFETY: sstatus 是只读 CSR
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, sstatus",
+                out(reg) sstatus,
+                options(nomem, nostack)
+            );
+        }
+        let spp = (sstatus >> 8) & 1; // SPP bit (bit 8)
+        if spp == 0 {
+            // TODO(student): CLINT 时钟中断 → 调度验证
+            // 验证时钟中断驱动调度的完整路径：
+            // 1. CLINT 产生时钟中断 (scause=5)
+            // 2. trap_handler 分发到 handle_timer_interrupt
+            // 3. 检查时间片用完 + SPP=0 (来自用户态)
+            // 4. 调用注册的调度函数 schedule_fn()
+            // 5. schedule() → context_switch → NEXT_TRAP_FRAME
+            // 6. trap.S 检查 NEXT_TRAP_FRAME → trap_return → sret
+
+            // 来自用户态：触发调度决策
+            // schedule() 会设置 NEXT_TRAP_FRAME，trap.S 在 trap_handler 返回后检查
+            // SAFETY: SCHEDULE_FN 在 init_schedule_fn 中初始化
+            unsafe {
+                if let Some(schedule_fn) = SCHEDULE_FN {
+                    let next_tf = schedule_fn();
+                    if !next_tf.is_null() {
+                        crate::arch::riscv64::NEXT_TRAP_FRAME.store(next_tf, Ordering::Release);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 调度回调
+// ---------------------------------------------------------------------------
+
+/// 调度函数指针（由 main.rs 注册）
+///
+/// 返回值：下一个任务的 TrapFrame 指针，如果不需要切换则返回 null。
+static mut SCHEDULE_FN: Option<fn() -> *mut crate::arch::riscv64::TrapFrame> = None;
+
+/// 注册调度函数。
+///
+/// 在 rust_main 中初始化任务系统后调用。
+///
+/// # Safety
+///
+/// 必须在中断处理之前调用（单线程初始化阶段）。
+pub unsafe fn init_schedule_fn(f: fn() -> *mut crate::arch::riscv64::TrapFrame) {
+    // SAFETY: 单线程初始化阶段，中断尚未启用
+    unsafe {
+        SCHEDULE_FN = Some(f);
+    }
 }

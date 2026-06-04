@@ -137,17 +137,30 @@ trap_entry:
     sd sp, 264(a0)
 
     # Step 5: 调用 trap_handler
-    # trap_handler 返回值 a0 = 当前任务的 TrapFrame 指针（可能已切换任务）
-    # 如果 a0 = 0，表示切换到了内核任务（如 idle），直接返回
+    # trap_handler 处理陷阱（中断、异常、系统调用）。
+    # 如果时钟中断触发了任务切换，trap_handler 会设置 NEXT_TRAP_FRAME。
     call trap_handler
 
-    # Step 6: 检查返回值
-    # a0 = trap_handler 返回的 TrapFrame 指针
-    # 如果 a0 == 0，表示切换到了内核任务，直接返回（不恢复 TrapFrame）
+    # Step 6: 检查 NEXT_TRAP_FRAME（抢占式调度）
+    #
+    # ## 教学概念：抢占式上下文切换
+    #
+    # 当时钟中断来自用户态时，调度器可能选择切换到另一个任务。
+    # 此时 NEXT_TRAP_FRAME 被设置为下一个任务的 TrapFrame 指针。
+    # trap_entry 从新的 TrapFrame 恢复寄存器并 sret 到新任务。
+    #
+    # 如果 NEXT_TRAP_FRAME 为 NULL，表示不需要切换（如来自内核态的中断），
+    # 直接返回到中断前的执行点。
+    la t0, NEXT_TRAP_FRAME
+    ld a0, 0(t0)
     beqz a0, .Lreturn_to_kernel
 
-    # a0 != 0：恢复用户任务的 TrapFrame 并 sret
-    # （fall through to trap_return）
+    # NEXT_TRAP_FRAME 非空：从新任务的 TrapFrame 恢复
+    # 清空 NEXT_TRAP_FRAME（一次性使用）
+    sd zero, 0(t0)
+
+    # a0 = 新任务的 TrapFrame 指针
+    # fall through to trap_return
 
 # ============================================================================
 # trap_return — 陷阱恢复（供 enter_user_mode 和 forkret 调用）

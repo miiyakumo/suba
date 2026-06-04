@@ -66,6 +66,54 @@ use suba_kernel::task::{RoundRobinScheduler, TaskManager, TaskState};
 /// 用于在 trap 处理中识别当前任务（如 exit 时标记任务状态）。
 static CURRENT_PID: AtomicUsize = AtomicUsize::new(0);
 
+/// Per-task 内核栈大小（4KB）
+///
+/// ## 教学概念：为什么每个任务需要独立的内核栈？
+///
+/// 当时钟中断打断用户态任务时，CPU 切换到内核栈执行 trap 处理。
+/// 如果多个任务共享同一个内核栈：
+/// - 任务 A 被中断，寄存器保存到栈上
+/// - 任务 B 运行并被中断，覆盖任务 A 的数据
+/// - 任务 A 恢复时数据已损坏
+///
+/// 每个任务需要独立的内核栈，确保 trap 处理互不干扰。
+/// 内核栈不需要很大——只需容纳 trap 处理的函数调用链。
+const TASK_KERNEL_STACK_SIZE: usize = 4096;
+
+/// Per-task 内核栈分配池
+///
+/// 使用静态数组为每个用户任务分配独立的内核栈。
+/// 最多支持 MAX_USER_TASKS 个用户任务。
+const MAX_USER_TASKS: usize = 8;
+
+/// 内核栈内存池（每个 4KB，8 个任务 = 32KB）
+#[repr(C, align(4096))]
+struct KernelStackPool {
+    stacks: [[u8; TASK_KERNEL_STACK_SIZE]; MAX_USER_TASKS],
+}
+
+/// 内核栈池实例（BSS 段，启动时自动清零）
+static mut STACK_POOL: KernelStackPool = KernelStackPool {
+    stacks: [[0; TASK_KERNEL_STACK_SIZE]; MAX_USER_TASKS],
+};
+
+/// 下一个可分配的栈索引
+static STACK_ALLOC_IDX: AtomicUsize = AtomicUsize::new(0);
+
+/// 分配一个内核栈，返回栈顶地址
+///
+/// 栈顶 = 栈基址 + 栈大小（栈向低地址增长）。
+/// 返回的地址是栈空间的最高地址（第一个 push 会写到 addr - 8）。
+fn alloc_kernel_stack() -> usize {
+    let idx = STACK_ALLOC_IDX.fetch_add(1, Ordering::Relaxed);
+    if idx >= MAX_USER_TASKS {
+        panic!("[suba] kernel stack pool exhausted");
+    }
+    // SAFETY: 每个 idx 唯一（原子递增），不会并发访问同一栈
+    let base = unsafe { &STACK_POOL.stacks[idx] as *const _ as usize };
+    base + TASK_KERNEL_STACK_SIZE
+}
+
 /// 全局任务管理器（在 rust_main 中初始化）。
 ///
 /// ## 教学概念：为什么需要全局任务管理器？
@@ -239,44 +287,85 @@ fn after_syscall_exit(tf: &mut arch::riscv64::TrapFrame) {
     schedule();
 }
 
+// ---------------------------------------------------------------------------
+// 调度回调（由 clint.rs 时钟中断调用）
+// ---------------------------------------------------------------------------
+
+/// 调度函数 — 由 clint.rs 的时钟中断处理调用。
+///
+/// 返回值：下一个任务的 TrapFrame 指针，如果不需要切换则返回 null。
+///
+/// ## 教学概念：抢占式调度的触发路径
+///
+/// ```text
+/// 时钟中断 → trap_entry → trap_handler
+///   → handle_timer_interrupt()
+///     → schedule_fn()
+///       → schedule() → context_switch() → NEXT_TRAP_FRAME
+///     → 返回 NEXT_TRAP_FRAME
+///   → trap_handler 返回
+/// → trap.S 检查 NEXT_TRAP_FRAME → 恢复新任务 → sret
+/// ```
+fn schedule_fn() -> *mut arch::riscv64::TrapFrame {
+    schedule();
+    arch::riscv64::NEXT_TRAP_FRAME.load(core::sync::atomic::Ordering::Acquire)
+}
+
 /// 调度器 — 选择下一个任务并切换。
 ///
 /// 从调度器取出下一个就绪任务，通过上下文切换跳转到该任务。
 /// 如果没有就绪任务，进入 idle 循环（等待中断唤醒）。
-fn schedule() -> ! {
-    // 从调度器获取下一个就绪任务的上下文（拷贝出来后释放锁）
-    let next_ctx = if let Some(sched) = SCHEDULER.get() {
+fn schedule() {
+    // 从调度器获取下一个就绪任务的信息
+    let next_info = if let Some(sched) = SCHEDULER.get() {
         sched.lock().next().and_then(|task| {
             let mut t = task.lock();
             t.state = TaskState::Running;
             let pid = t.pid;
             CURRENT_PID.store(pid, Ordering::Relaxed);
 
-            uart_puts("[sched] switching to PID ");
+            uart_puts("[sched] PID ");
             uart_putchar(b'0' + pid as u8);
             uart_putchar(b'\n');
 
-            Some(t.context) // Context 是 Copy
+            Some((t.context_ptr(), t.trap_frame_ptr, t.page_table_root))
         })
     } else {
         None
     };
 
-    if let Some(ctx) = next_ctx {
-        let mut dummy = suba_kernel::arch::Context::zero_init();
-        // SAFETY: ctx 来自有效的 Task
-        unsafe {
-            arch::riscv64::Riscv64Arch::context_switch(
-                &mut dummy as *mut suba_kernel::arch::Context,
-                &ctx as *const suba_kernel::arch::Context,
+    if let Some((next_ctx, trap_frame_ptr, page_table_root)) = next_info {
+        // 切换到新任务的页表
+        if page_table_root != 0 {
+            // SAFETY: page_table_root 是有效的 SV39 页表根 PPN
+            unsafe { arch::riscv64::switch_page_table(page_table_root); }
+        }
+
+        // 设置 NEXT_TRAP_FRAME：trap.S 在 trap_handler 返回后检查此变量
+        if trap_frame_ptr != 0 {
+            arch::riscv64::NEXT_TRAP_FRAME.store(
+                trap_frame_ptr as *mut arch::riscv64::TrapFrame,
+                core::sync::atomic::Ordering::Release,
             );
         }
-        unreachable!("[suba] schedule: context_switch returned");
-    }
 
-    // 没有就绪任务，进入 idle 循环
-    uart_puts("[sched] no ready tasks, entering idle\n");
-    idle_loop();
+        // 获取当前任务的上下文指针（用于保存）
+        let current_pid = CURRENT_PID.load(Ordering::Relaxed);
+        let old_ctx = if let Some(tm) = TASK_MANAGER.get() {
+            tm.lock().get_task(current_pid).map(|t| t.lock().context_ptr())
+        } else {
+            None
+        };
+
+        if let Some(old_ctx) = old_ctx {
+            // SAFETY: old_ctx 和 next_ctx 来自有效的 Task
+            unsafe {
+                arch::riscv64::Riscv64Arch::context_switch(old_ctx, next_ctx);
+            }
+            // context_switch 返回：当前任务被恢复
+        }
+    }
+    // 没有就绪任务时：当前任务继续运行
 }
 
 /// 用户任务入口 trampoline
@@ -286,22 +375,36 @@ fn schedule() -> ! {
 /// 1. 从 TASK_MANAGER 获取当前任务的信息
 /// 2. 激活任务的页表（page_table_root）
 /// 3. 通过 sret 切换到用户模式
+/// 用户任务入口 trampoline
+///
+/// ## 教学概念：forkret 路径
+///
+/// 新创建的用户任务首次被调度时，context.ra 指向此函数。
+/// trampoline 负责：
+/// 1. 激活任务的页表（每个用户任务有独立的 SV39 页表）
+/// 2. 将 trap_frame_ptr 写入 sscratch（供 trap_entry 保存寄存器）
+/// 3. 通过 trap_return 恢复 TrapFrame 并 sret 到用户态
+///
+/// sscratch 的作用：当用户态发生陷阱时，trap_entry 读取 sscratch
+/// 获取 TrapFrame 地址，将全部寄存器保存到该位置。
+/// 每个任务的 sscratch 指向其专属的 TrapFrame。
 fn user_task_entry() -> ! {
     let pid = CURRENT_PID.load(Ordering::Relaxed);
 
-    let (page_table_root, user_entry, ustack_top, kernel_sp) = if let Some(tm) = TASK_MANAGER.get() {
-        let tm = tm.lock();
-        if let Some(task) = tm.get_task(pid) {
-            let t = task.lock();
-            (t.page_table_root, t.user_entry, t.ustack_top, t.kstack_top)
+    let (page_table_root, trap_frame_ptr) =
+        if let Some(tm) = TASK_MANAGER.get() {
+            let tm = tm.lock();
+            if let Some(task) = tm.get_task(pid) {
+                let t = task.lock();
+                (t.page_table_root, t.trap_frame_ptr)
+            } else {
+                uart_puts("[trampoline] ERROR: task not found\n");
+                power::shutdown(false);
+            }
         } else {
-            uart_puts("[trampoline] ERROR: task not found\n");
+            uart_puts("[trampoline] ERROR: TASK_MANAGER not initialized\n");
             power::shutdown(false);
-        }
-    } else {
-        uart_puts("[trampoline] ERROR: TASK_MANAGER not initialized\n");
-        power::shutdown(false);
-    };
+        };
 
     // 激活任务的页表
     if page_table_root != 0 {
@@ -311,13 +414,25 @@ fn user_task_entry() -> ! {
         }
     }
 
-    // 切换到用户模式
-    // SAFETY: user_entry 和 ustack_top 来自有效的 ELF 加载
+    // 将 trap_frame_ptr 写入 sscratch
+    // 当任务被中断时，trap_entry 从 sscratch 读取 TrapFrame 地址
+    // SAFETY: trap_frame_ptr 指向有效的 TrapFrame
     unsafe {
-        arch::riscv64::drop_to_user_mode(user_entry, ustack_top, kernel_sp, 0);
+        core::arch::asm!(
+            "csrw sscratch, {tf}",
+            tf = in(reg) trap_frame_ptr,
+            options(nomem, nostack)
+        );
     }
 
-    unreachable!("[trampoline] drop_to_user_mode returned")
+    // 通过 trap_return 恢复 TrapFrame 并 sret 到用户态
+    // TrapFrame 已在 rust_main 中初始化（setup_user_trap_frame）
+    // SAFETY: trap_frame_ptr 指向正确初始化的 TrapFrame
+    unsafe {
+        arch::riscv64::trap_return(trap_frame_ptr as *mut arch::riscv64::TrapFrame);
+    }
+
+    unreachable!("[trampoline] trap_return returned")
 }
 
 // ===========================================================================
@@ -493,23 +608,55 @@ pub extern "C" fn rust_main() -> ! {
     }
     uart_puts("[boot] exit handler registered\n");
 
+    // 注册调度函数（由 clint.rs 时钟中断调用）
+    // 当时钟中断来自用户态且时间片用完时，clint 调用此函数触发任务切换。
+    // SAFETY: 中断尚未在此代码路径中触发（Step 9 之前）
+    unsafe {
+        driver::clint::init_schedule_fn(schedule_fn);
+    }
+    uart_puts("[boot] schedule function registered\n");
+
     // ================================================================
     // Step 9: 加载用户程序并创建多个任务
     // ================================================================
     let init_elf = include_bytes!("user_init.bin");
+    let loop_elf = include_bytes!("user_loop.bin");
     uart_puts("[boot] loading user programs...\n");
 
-    // 内核栈顶（所有用户任务共享，boot_stack_top 在 Step 8 中声明）
-    let kernel_sp = boot_stack_top as usize;
-
-    // --- 创建用户任务 A ---
+    // --- 创建用户任务 A (user_init.bin: 立即 exit) ---
     let task_a = match arch::riscv64::load_elf_to_space(init_elf) {
         Ok((user_space, entry, stack_top)) => {
             let root_ppn = user_space.root_ppn();
+            // 分配独立的内核栈（每个任务需要独立的内核栈和 TrapFrame）
+            let kstack_top = alloc_kernel_stack();
             let task = {
                 let mut tm = TASK_MANAGER.get().unwrap().lock();
-                tm.create_user_task(user_task_entry as usize, kernel_sp, stack_top, root_ppn, entry)
+                tm.create_user_task(user_task_entry as usize, kstack_top, stack_top, root_ppn, entry)
             };
+            // 设置 TrapFrame 和 context.sp（用于 context_switch 首次调度）
+            //
+            // ## 教学概念：内核栈布局
+            //
+            // ```text
+            // kstack_top ─────────────
+            //             │ TrapFrame │  ← trap_frame_ptr (272 bytes, sscratch 指向此)
+            // kstack_top  │           │
+            //   - 272  ───────────────
+            //             │ (8 bytes) │  ← sp / kernel_sp (从这里开始)
+            // kstack_top  │           │     trap_entry 切换到此，函数调用向下增长
+            //   - 280  ───────────────
+            //             │  栈空间    │
+            //             │  (向下增长)│
+            // kstack_base ─────────────
+            // ```
+            let tf_size = core::mem::size_of::<arch::riscv64::TrapFrame>();
+            let tf_addr = kstack_top - tf_size;
+            {
+                let mut t = task.lock();
+                t.trap_frame_ptr = tf_addr;
+                // sp 指向 TrapFrame 下方，函数调用不会覆盖 TrapFrame
+                t.context.sp = tf_addr - 8;
+            }
             uart_puts("[boot] task A: PID=");
             uart_putchar(b'0' + task.lock().pid as u8);
             uart_putchar(b'\n');
@@ -521,14 +668,22 @@ pub extern "C" fn rust_main() -> ! {
         }
     };
 
-    // --- 创建用户任务 B ---
-    let task_b = match arch::riscv64::load_elf_to_space(init_elf) {
+    // --- 创建用户任务 B (user_loop.bin: 循环打印) ---
+    let task_b = match arch::riscv64::load_elf_to_space(loop_elf) {
         Ok((user_space, entry, stack_top)) => {
             let root_ppn = user_space.root_ppn();
+            let kstack_top = alloc_kernel_stack();
             let task = {
                 let mut tm = TASK_MANAGER.get().unwrap().lock();
-                tm.create_user_task(user_task_entry as usize, kernel_sp, stack_top, root_ppn, entry)
+                tm.create_user_task(user_task_entry as usize, kstack_top, stack_top, root_ppn, entry)
             };
+            let tf_size = core::mem::size_of::<arch::riscv64::TrapFrame>();
+            let tf_addr = kstack_top - tf_size;
+            {
+                let mut t = task.lock();
+                t.trap_frame_ptr = tf_addr;
+                t.context.sp = tf_addr - 8;
+            }
             uart_puts("[boot] task B: PID=");
             uart_putchar(b'0' + task.lock().pid as u8);
             uart_putchar(b'\n');
@@ -551,6 +706,16 @@ pub extern "C" fn rust_main() -> ! {
     // ============================================================
     // Step 9.5: sret 切换到用户态（第一个用户任务）
     // ============================================================
+    // 使用 per-task TrapFrame 启动用户任务。
+    // 这样当任务被时钟中断打断时，寄存器会保存到正确的 TrapFrame，
+    // 调度器可以安全地切换到其他任务。
+    //
+    // ## 教学概念：为什么不用 enter_user_mode？
+    //
+    // enter_user_mode 创建栈上的临时 TrapFrame，任务被抢占后
+    // 寄存器保存到该临时 TrapFrame，但调度器不知道它的位置。
+    // 使用 per-task TrapFrame（在 Task.trap_frame_ptr 中记录），
+    // 调度器可以通过 NEXT_TRAP_FRAME 实现抢占式切换。
     if let Some(ref task) = task_a {
         let task = task.lock();
         CURRENT_PID.store(task.pid, Ordering::Relaxed);
@@ -561,9 +726,34 @@ pub extern "C" fn rust_main() -> ! {
             unsafe { arch::riscv64::switch_page_table(task.page_table_root); }
         }
 
+        let tf_addr = task.trap_frame_ptr;
+        // kernel_sp 位于 TrapFrame 下方（函数调用不会覆盖 TrapFrame）
+        let kernel_sp = tf_addr - 8;
+        // SAFETY: tf_addr 指向内核栈上分配的有效 TrapFrame
+        unsafe {
+            // 初始化 TrapFrame：设置用户态入口、栈指针、中断状态
+            arch::riscv64::setup_user_trap_frame(
+                &mut *(tf_addr as *mut arch::riscv64::TrapFrame),
+                task.user_entry,
+                task.ustack_top,
+                kernel_sp,
+                0,
+            );
+            // 将 TrapFrame 指针写入 sscratch（供 trap_entry 使用）
+            core::arch::asm!(
+                "csrw sscratch, {tf}",
+                tf = in(reg) tf_addr,
+                options(nomem, nostack)
+            );
+        }
+
         uart_puts("[boot] entering user mode with task A...\n");
-        arch::riscv64::enter_user_mode(task.user_entry, task.ustack_top, kernel_sp, 0);
-        // enter_user_mode 不返回
+        // 通过 trap_return 恢复 TrapFrame 并 sret 到用户态
+        // SAFETY: TrapFrame 已正确初始化
+        unsafe {
+            arch::riscv64::trap_return(tf_addr as *mut arch::riscv64::TrapFrame);
+        }
+        // trap_return 不返回（已切换到用户态）
     }
 
     // ================================================================

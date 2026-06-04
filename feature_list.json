@@ -3,7 +3,7 @@
   "project": "suba",
   "total": 105,
   "summary": {
-    "completed": 25,
+    "completed": 26,
     "in_progress": 0,
     "pending": 80
   },
@@ -2111,9 +2111,12 @@
       "name": "时钟中断驱动调度",
       "description": "验证时钟中断驱动的任务调度：CLINT 产生中断 → trap_handler → 更新 tick → 触发 schedule() → context_switch → 任务切换。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "approved",
+      "review_log": [
+        "R1(correctness): cargo build zero warnings, SAFETY comments, RISC-V CSR naming, sbi_rt SBI calls, SPP check for user-mode preemption, NEXT_TRAP_FRAME mechanism verified",
+        "R2(pedagogy): module docs explain hardware concepts, student_todo at key scheduling decision point, .solution/ reference complete"
+      ],
       "solution": ".solution/11.8-timer-scheduling.rs",
       "student_todo": [
         "CLINT 时钟中断 → 调度验证"
