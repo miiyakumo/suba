@@ -2009,7 +2009,7 @@
       "name": "创建第一个任务并调度",
       "description": "在内核中创建第一个用户任务（init 进程），加入调度器，通过上下文切换开始执行。验证任务创建 → 调度 → 执行的完整路径。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/11.2-first-task.rs",
