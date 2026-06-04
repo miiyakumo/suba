@@ -971,4 +971,254 @@ mod tests {
         let result = unsafe { copy_segment(&elf_data, &phdr, dst.as_mut_ptr()) };
         assert_eq!(result, Err(ElfError::PhdrOutOfBounds));
     }
+
+    // -----------------------------------------------------------------------
+    // 边界条件测试
+    // -----------------------------------------------------------------------
+
+    /// 构建一个包含 3 个程序头的 mini ELF
+    ///
+    /// phdr 0: .text (PT_LOAD, R+X, filesz=8, memsz=8)
+    /// phdr 1: PT_DYNAMIC (非 PT_LOAD，应被跳过)
+    /// phdr 2: .bss (PT_LOAD, R+W, filesz=0, memsz=16)
+    fn make_elf_with_mixed_phdrs() -> alloc::vec::Vec<u8> {
+        let phdr_count = 3u16;
+        let data_size = 64 + 56 * phdr_count as usize + 8; // +8 for .text data
+        let mut data = alloc::vec![0u8; data_size];
+
+        // ELF 头
+        data[0..4].copy_from_slice(&ELF_MAGIC);
+        data[4] = ELFCLASS64;
+        data[5] = ELFDATA2LSB;
+        data[6] = 1;
+        data[16..18].copy_from_slice(&ET_EXEC.to_le_bytes());
+        data[18..20].copy_from_slice(&EM_RISCV.to_le_bytes());
+        data[20..24].copy_from_slice(&1u32.to_le_bytes());
+        data[24..32].copy_from_slice(&0x10000u64.to_le_bytes()); // entry
+        data[32..40].copy_from_slice(&64u64.to_le_bytes());      // phoff
+        data[52..54].copy_from_slice(&64u16.to_le_bytes());      // e_ehsize
+        data[54..56].copy_from_slice(&56u16.to_le_bytes());      // phentsize
+        data[56..58].copy_from_slice(&phdr_count.to_le_bytes()); // phnum
+
+        // 在 offset 176 (= 64 + 56*2) 放 .text 数据（8 字节）
+        let text_data_offset = 64 + 56 * phdr_count as usize;
+        for i in 0..8 {
+            data[text_data_offset + i] = (0xAA + i) as u8;
+        }
+
+        // phdr 0: .text (PT_LOAD, R+X, filesz=8, memsz=8)
+        let p0 = 64;
+        data[p0..p0+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        data[p0+4..p0+8].copy_from_slice(&(segment_flags::PF_R | segment_flags::PF_X).to_le_bytes());
+        data[p0+8..p0+16].copy_from_slice(&(text_data_offset as u64).to_le_bytes()); // p_offset
+        data[p0+16..p0+24].copy_from_slice(&0x10000u64.to_le_bytes()); // p_vaddr
+        data[p0+32..p0+40].copy_from_slice(&8u64.to_le_bytes());       // p_filesz
+        data[p0+40..p0+48].copy_from_slice(&8u64.to_le_bytes());       // p_memsz
+
+        // phdr 1: PT_DYNAMIC (非 PT_LOAD，应被跳过)
+        let p1 = 64 + 56;
+        data[p1..p1+4].copy_from_slice(&segment_type::PT_DYNAMIC.to_le_bytes());
+        data[p1+4..p1+8].copy_from_slice(&segment_flags::PF_R.to_le_bytes());
+
+        // phdr 2: .bss (PT_LOAD, R+W, filesz=0, memsz=16)
+        let p2 = 64 + 56 * 2;
+        data[p2..p2+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        data[p2+4..p2+8].copy_from_slice(&(segment_flags::PF_R | segment_flags::PF_W).to_le_bytes());
+        data[p2+16..p2+24].copy_from_slice(&0x20000u64.to_le_bytes()); // p_vaddr
+        data[p2+32..p2+40].copy_from_slice(&0u64.to_le_bytes());       // p_filesz (纯 BSS)
+        data[p2+40..p2+48].copy_from_slice(&16u64.to_le_bytes());      // p_memsz
+
+        data
+    }
+
+    #[test]
+    fn parse_program_headers_mixed_types() {
+        // 应解析出全部 3 个程序头（包括非 PT_LOAD 的）
+        let data = make_elf_with_mixed_phdrs();
+        let phdrs = parse_program_headers(&data, 64, 56, 3).unwrap();
+        assert_eq!(phdrs.len(), 3);
+
+        assert!(phdrs[0].is_load()); // .text
+        assert!(!phdrs[1].is_load()); // PT_DYNAMIC
+        assert!(phdrs[2].is_load()); // .bss
+    }
+
+    #[test]
+    fn copy_segment_bss_only() {
+        // 纯 BSS 段：filesz=0, memsz=16
+        let mut buf = [0u8; 56];
+        buf[0..4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        buf[4..8].copy_from_slice(&(segment_flags::PF_R | segment_flags::PF_W).to_le_bytes());
+        buf[32..40].copy_from_slice(&0u64.to_le_bytes());  // p_filesz = 0
+        buf[40..48].copy_from_slice(&16u64.to_le_bytes());  // p_memsz = 16
+
+        let phdr = ProgramHeader64::from_bytes(&buf).unwrap();
+        let mut dst = [0xFFu8; 16]; // 预填充非零值
+
+        // SAFETY: dst 足够大
+        unsafe {
+            copy_segment(&[], &phdr, dst.as_mut_ptr()).unwrap();
+        }
+
+        // BSS 段应被清零
+        for i in 0..16 {
+            assert_eq!(dst[i], 0, "BSS byte {} should be zero", i);
+        }
+    }
+
+    #[test]
+    fn copy_segment_zero_memsz() {
+        // filesz=0, memsz=0：空段，应成功但什么都不做
+        let mut buf = [0u8; 56];
+        buf[0..4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        buf[32..40].copy_from_slice(&0u64.to_le_bytes()); // p_filesz = 0
+        buf[40..48].copy_from_slice(&0u64.to_le_bytes()); // p_memsz = 0
+
+        let phdr = ProgramHeader64::from_bytes(&buf).unwrap();
+        let mut dst = [0xABu8; 4];
+
+        // SAFETY: dst 存在
+        unsafe {
+            copy_segment(&[], &phdr, dst.as_mut_ptr()).unwrap();
+        }
+
+        // dst 应保持不变
+        assert_eq!(dst, [0xABu8; 4]);
+    }
+
+    #[test]
+    fn parse_program_headers_zero_count() {
+        // phnum=0：空程序头表，应返回空 Vec
+        let data = make_valid_elf_bytes();
+        let phdrs = parse_program_headers(&data, 64, 56, 0).unwrap();
+        assert_eq!(phdrs.len(), 0);
+    }
+
+    #[test]
+    fn parse_program_headers_larger_entsize() {
+        // entsize > 56（ELF 允许条目大于最小值）
+        let data = make_elf_with_phdrs();
+        // entsize=64 > 56，应该能解析（跳过额外字节）
+        let phdrs = parse_program_headers(&data, 64, 64, 1).unwrap();
+        assert_eq!(phdrs.len(), 1);
+        assert_eq!(phdrs[0].p_type, segment_type::PT_LOAD);
+    }
+
+    #[test]
+    fn program_header_flags_all_combinations() {
+        let test_cases = [
+            (segment_flags::PF_R, true, false, false),
+            (segment_flags::PF_W, false, true, false),
+            (segment_flags::PF_X, false, false, true),
+            (segment_flags::PF_R | segment_flags::PF_W, true, true, false),
+            (segment_flags::PF_R | segment_flags::PF_X, true, false, true),
+            (segment_flags::PF_R | segment_flags::PF_W | segment_flags::PF_X, true, true, true),
+        ];
+
+        for (flags, expect_r, expect_w, expect_x) in test_cases {
+            let mut buf = [0u8; 56];
+            buf[0..4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+            buf[4..8].copy_from_slice(&flags.to_le_bytes());
+
+            let phdr = ProgramHeader64::from_bytes(&buf).unwrap();
+            assert_eq!(phdr.is_readable(), expect_r, "PF_R for flags={:#x}", flags);
+            assert_eq!(phdr.is_writable(), expect_w, "PF_W for flags={:#x}", flags);
+            assert_eq!(phdr.is_executable(), expect_x, "PF_X for flags={:#x}", flags);
+        }
+    }
+
+    #[test]
+    fn program_header_non_load_types() {
+        let types = [
+            segment_type::PT_DYNAMIC,
+            segment_type::PT_INTERP,
+            0x6474e550, // PT_GNU_RELRO
+            0x6474e551, // PT_GNU_STACK
+        ];
+
+        for ptype in types {
+            let mut buf = [0u8; 56];
+            buf[0..4].copy_from_slice(&ptype.to_le_bytes());
+            let phdr = ProgramHeader64::from_bytes(&buf).unwrap();
+            assert!(!phdr.is_load(), "ptype {:#x} should not be PT_LOAD", ptype);
+        }
+    }
+
+    #[test]
+    fn load_elf_segments_with_two_segments() {
+        // 构建一个包含 .text + .data 的 ELF
+        let text_data_offset: usize = 64 + 56 * 2; // ELF header + 2 phdrs
+        let text_data_size: usize = 16;
+        let data_data_offset: usize = text_data_offset + text_data_size;
+        let data_data_size: usize = 8;
+        let total_size = data_data_offset + data_data_size;
+
+        let mut elf_data = alloc::vec![0u8; total_size];
+
+        // ELF 头
+        elf_data[0..4].copy_from_slice(&ELF_MAGIC);
+        elf_data[4] = ELFCLASS64;
+        elf_data[5] = ELFDATA2LSB;
+        elf_data[6] = 1;
+        elf_data[16..18].copy_from_slice(&ET_EXEC.to_le_bytes());
+        elf_data[18..20].copy_from_slice(&EM_RISCV.to_le_bytes());
+        elf_data[24..32].copy_from_slice(&0x8020_0000u64.to_le_bytes()); // entry
+        elf_data[32..40].copy_from_slice(&64u64.to_le_bytes());           // phoff
+        elf_data[52..54].copy_from_slice(&64u16.to_le_bytes());           // e_ehsize
+        elf_data[54..56].copy_from_slice(&56u16.to_le_bytes());           // phentsize
+        elf_data[56..58].copy_from_slice(&2u16.to_le_bytes());            // phnum
+
+        // phdr 0: .text (PT_LOAD, R+X, filesz=16, memsz=16)
+        let p0 = 64;
+        elf_data[p0..p0+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        elf_data[p0+4..p0+8].copy_from_slice(&(segment_flags::PF_R | segment_flags::PF_X).to_le_bytes());
+        elf_data[p0+8..p0+16].copy_from_slice(&(text_data_offset as u64).to_le_bytes());
+        elf_data[p0+16..p0+24].copy_from_slice(&0x10000u64.to_le_bytes()); // p_vaddr
+        elf_data[p0+32..p0+40].copy_from_slice(&(text_data_size as u64).to_le_bytes());
+        elf_data[p0+40..p0+48].copy_from_slice(&(text_data_size as u64).to_le_bytes());
+
+        // phdr 1: .data (PT_LOAD, R+W, filesz=8, memsz=16)
+        let p1 = 64 + 56;
+        elf_data[p1..p1+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        elf_data[p1+4..p1+8].copy_from_slice(&(segment_flags::PF_R | segment_flags::PF_W).to_le_bytes());
+        elf_data[p1+8..p1+16].copy_from_slice(&(data_data_offset as u64).to_le_bytes());
+        elf_data[p1+16..p1+24].copy_from_slice(&0x20000u64.to_le_bytes()); // p_vaddr
+        elf_data[p1+32..p1+40].copy_from_slice(&(data_data_size as u64).to_le_bytes());
+        elf_data[p1+40..p1+48].copy_from_slice(&16u64.to_le_bytes()); // memsz=16 (BSS)
+
+        // 填充 .text 数据
+        for i in 0..text_data_size {
+            elf_data[text_data_offset + i] = (i + 1) as u8;
+        }
+        // 填充 .data 数据
+        for i in 0..data_data_size {
+            elf_data[data_data_offset + i] = (0x10 + i) as u8;
+        }
+
+        // 目标缓冲区
+        let mut text_dst = [0u8; 16];
+        let mut data_dst = [0u8; 16];
+
+        let phdrs = parse_program_headers(&elf_data, 64, 56, 2).unwrap();
+
+        // 分别加载两个段
+        // SAFETY: dst 足够大
+        unsafe {
+            copy_segment(&elf_data, &phdrs[0], text_dst.as_mut_ptr()).unwrap();
+            copy_segment(&elf_data, &phdrs[1], data_dst.as_mut_ptr()).unwrap();
+        }
+
+        // 验证 .text 段内容
+        for i in 0..text_data_size {
+            assert_eq!(text_dst[i], (i + 1) as u8, ".text byte {}", i);
+        }
+
+        // 验证 .data 段内容：前 8 字节是文件数据，后 8 字节是 BSS 清零
+        for i in 0..data_data_size {
+            assert_eq!(data_dst[i], (0x10 + i) as u8, ".data byte {}", i);
+        }
+        for i in data_data_size..16 {
+            assert_eq!(data_dst[i], 0, ".bss byte {} should be zero", i);
+        }
+    }
 }
