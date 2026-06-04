@@ -1390,7 +1390,12 @@
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
       "review_status": "approved",
-      "review_log": [],
+      "review_log": [
+        {
+          "date": "2026-06-04",
+          "note": "Push failed: Connection closed by remote. Commit 49bb5a8 local only."
+        }
+      ],
       "solution": ".solution/7.6-riscv-cpuops.rs",
       "student_todo": [
         "os/src/arch/riscv64/mod.rs:Riscv64CpuOps"
@@ -1403,8 +1408,8 @@
       "name": "定义 RISC-V TrapFrame",
       "description": "在 os/src/arch/riscv64/ 中定义 TrapFrame 结构体（#[repr(C)]），包含 sepc、x1-x31、sstatus、kernel_sp 共 34 个 usize 字段。实现 HwTrapFrame 和 SyscallFrame trait。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/7.7-riscv-trapframe.rs",
       "student_todo": [
