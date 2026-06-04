@@ -2041,8 +2041,8 @@
       "name": "sret 切换到用户态",
       "description": "通过 sret 指令从 S Mode 切换到 U Mode，开始执行用户程序。验证 sstatus.SPP、sepc、用户栈指针的正确设置。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/11.4-sret-to-user.rs",
       "student_todo": [
