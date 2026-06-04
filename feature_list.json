@@ -1660,8 +1660,8 @@
       "name": "地址类型安全",
       "description": "使用 PA/VA 类型包装器确保地址不会被误用。在页表操作中强制使用类型安全的地址，防止内核/用户地址混淆。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/8.10-type-safe-addr.rs",
       "student_todo": [
