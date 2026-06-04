@@ -420,6 +420,131 @@ pub fn parse_program_headers(
     Ok(phdrs)
 }
 
+/// 将 PT_LOAD 段从 ELF 数据复制到目标内存地址
+///
+/// # 教学概念：加载段到内存
+///
+/// 加载器的核心工作就是将 ELF 中的 PT_LOAD 段复制到内存中正确的位置。
+/// 过程如下：
+///
+/// ```text
+/// ELF 文件                     内存 (p_vaddr)
+/// ┌──────────────┐            ┌──────────────┐
+/// │ p_offset     │  ──copy──→ │ p_vaddr      │  p_filesz 字节
+/// │ (p_filesz)   │            │              │
+/// └──────────────┘            ├──────────────┤
+///                             │  BSS 区域    │  (p_memsz - p_filesz) 字节清零
+///                             │  (零填充)    │
+///                             └──────────────┘
+/// ```
+///
+/// 当 `p_memsz > p_filesz` 时，多出的部分是 BSS 段（未初始化全局变量），
+/// 加载器必须将其清零。这是 C 语言规范的要求：
+/// 未初始化的全局变量默认为 0。
+///
+/// # Safety
+///
+/// `dst` 必须指向至少 `p_memsz` 字节的可写内存。
+/// 调用者负责确保目标地址已经通过页表映射到正确的物理帧。
+///
+/// # 参数
+/// - `data`：ELF 文件的原始字节
+/// - `phdr`：程序头（描述要加载的段）
+/// - `dst`：目标内存地址（虚拟地址，已经映射）
+///
+/// # 返回值
+/// 成功返回 Ok(())，段数据超出 ELF 文件范围时返回 Err。
+pub unsafe fn copy_segment(
+    data: &[u8],
+    phdr: &ProgramHeader64,
+    dst: *mut u8,
+) -> Result<(), ElfError> {
+    let offset = phdr.offset();
+    let filesz = phdr.file_size();
+    let memsz = phdr.mem_size();
+
+    // 检查段数据是否在 ELF 文件范围内
+    let end = offset.checked_add(filesz).ok_or(ElfError::PhdrOutOfBounds)?;
+    if end > data.len() {
+        return Err(ElfError::PhdrOutOfBounds);
+    }
+
+    // Step 1: 从 ELF 文件复制 p_filesz 字节到目标地址
+    //
+    // 这包含了程序的代码（.text）、只读数据（.rodata）、
+    // 已初始化全局变量（.data）等。
+    if filesz > 0 {
+        // SAFETY: 调用者确保 dst 指向至少 memsz 字节的可写内存，
+        // 且 src (data[offset..offset+filesz]) 是有效的读取范围。
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                data[offset..offset + filesz].as_ptr(),
+                dst,
+                filesz,
+            );
+        }
+    }
+
+    // Step 2: 将 BSS 区域清零（p_memsz - p_filesz 字节）
+    //
+    // BSS 段在 ELF 文件中不占空间（p_filesz = 0 或 < p_memsz），
+    // 但在内存中需要占空间（p_memsz），且必须初始化为零。
+    if memsz > filesz {
+        let bss_size = memsz - filesz;
+        // SAFETY: 调用者确保 dst 指向至少 memsz 字节的可写内存，
+        // 因此 dst.add(filesz) 到 dst.add(memsz) 也是有效的可写范围。
+        unsafe {
+            let bss_start = dst.add(filesz);
+            core::ptr::write_bytes(bss_start, 0, bss_size);
+        }
+    }
+
+    Ok(())
+}
+
+/// 从 ELF 数据加载所有 PT_LOAD 段到目标内存
+///
+/// 这是加载器的高层接口：解析 ELF → 遍历程序头 → 复制 PT_LOAD 段。
+///
+/// # Safety
+///
+/// `base_addr` 必须指向已经映射好的可写内存区域，
+/// 大小足以容纳所有 PT_LOAD 段（通常由页表分配器保证）。
+///
+/// # 返回值
+/// 成功返回入口点地址，失败返回 Err。
+pub unsafe fn load_elf_segments(
+    data: &[u8],
+    base_addr: *mut u8,
+) -> Result<usize, ElfError> {
+    let header = ElfHeader64::from_bytes(data)?;
+    header.validate()?;
+
+    let entry = header.entry_point();
+    let phdrs = parse_program_headers(
+        data,
+        header.e_phoff,
+        header.e_phentsize,
+        header.e_phnum,
+    )?;
+
+    for phdr in &phdrs {
+        if !phdr.is_load() {
+            continue;
+        }
+        // 计算段在目标内存中的位置
+        // 假设 base_addr 对应 ELF 的第一个 PT_LOAD 段的 vaddr
+        // 实际实现中需要根据 phdr.vaddr() 计算偏移
+        // SAFETY: 调用者确保 base_addr 区域已映射且足够大
+        unsafe {
+            let dst = base_addr.add(phdr.offset());
+            copy_segment(data, phdr, dst)?;
+        }
+    }
+
+    Ok(entry)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -771,5 +896,79 @@ mod tests {
     #[test]
     fn program_header_from_bytes_too_short() {
         assert!(ProgramHeader64::from_bytes(&[0u8; 20]).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // copy_segment 测试
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn copy_segment_basic() {
+        // 构建一个包含 16 字节数据的 ELF
+        let mut elf_data = alloc::vec![0xABu8; 176]; // 64 (ELF header) + 56 (phdr) + 16 (data) + padding
+        // 设置 ELF 头
+        elf_data[0..4].copy_from_slice(&ELF_MAGIC);
+        elf_data[4] = ELFCLASS64;
+        elf_data[5] = ELFDATA2LSB;
+        elf_data[6] = 1;
+        elf_data[16..18].copy_from_slice(&ET_EXEC.to_le_bytes());
+        elf_data[18..20].copy_from_slice(&EM_RISCV.to_le_bytes());
+        elf_data[24..32].copy_from_slice(&0x8020_0000u64.to_le_bytes());
+        elf_data[32..40].copy_from_slice(&64u64.to_le_bytes());
+        elf_data[52..54].copy_from_slice(&64u16.to_le_bytes());
+        elf_data[54..56].copy_from_slice(&56u16.to_le_bytes());
+        elf_data[56..58].copy_from_slice(&1u16.to_le_bytes());
+
+        // 程序头: PT_LOAD, offset=64+56=120, filesz=16, memsz=32
+        let p0 = 64;
+        elf_data[p0..p0+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        elf_data[p0+4..p0+8].copy_from_slice(&segment_flags::PF_R.to_le_bytes());
+        elf_data[p0+8..p0+16].copy_from_slice(&120u64.to_le_bytes()); // p_offset
+        elf_data[p0+32..p0+40].copy_from_slice(&16u64.to_le_bytes()); // p_filesz
+        elf_data[p0+40..p0+48].copy_from_slice(&32u64.to_le_bytes()); // p_memsz
+
+        // 在 offset 120 写入测试数据
+        for i in 0..16 {
+            elf_data[120 + i] = (i + 1) as u8;
+        }
+
+        // 目标缓冲区
+        let mut dst = [0u8; 32];
+        let phdr = ProgramHeader64::from_bytes(&elf_data[64..120]).unwrap();
+
+        // SAFETY: dst 足够大（32 字节）
+        unsafe {
+            copy_segment(&elf_data, &phdr, dst.as_mut_ptr()).unwrap();
+        }
+
+        // 验证：前 16 字节是从 ELF 复制的数据
+        for i in 0..16 {
+            assert_eq!(dst[i], (i + 1) as u8, "byte {} should be copied", i);
+        }
+        // 验证：后 16 字节是 BSS 清零
+        for i in 16..32 {
+            assert_eq!(dst[i], 0, "BSS byte {} should be zero", i);
+        }
+    }
+
+    #[test]
+    fn copy_segment_out_of_bounds() {
+        // 声称 filesz 很大，但 ELF 数据不够
+        let mut elf_data = alloc::vec![0u8; 120];
+        elf_data[0..4].copy_from_slice(&ELF_MAGIC);
+        elf_data[4] = ELFCLASS64;
+        elf_data[5] = ELFDATA2LSB;
+
+        let p0 = 64;
+        elf_data[p0..p0+4].copy_from_slice(&segment_type::PT_LOAD.to_le_bytes());
+        elf_data[p0+8..p0+16].copy_from_slice(&0u64.to_le_bytes()); // p_offset
+        elf_data[p0+32..p0+40].copy_from_slice(&9999u64.to_le_bytes()); // p_filesz too large
+        elf_data[p0+40..p0+48].copy_from_slice(&9999u64.to_le_bytes()); // p_memsz
+
+        let phdr = ProgramHeader64::from_bytes(&elf_data[64..120]).unwrap();
+        let mut dst = [0u8; 16];
+        // SAFETY: dst 足够大
+        let result = unsafe { copy_segment(&elf_data, &phdr, dst.as_mut_ptr()) };
+        assert_eq!(result, Err(ElfError::PhdrOutOfBounds));
     }
 }

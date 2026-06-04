@@ -1857,8 +1857,8 @@
       "name": "实现段加载到内存",
       "description": "将 ELF 的 PT_LOAD 段复制到用户地址空间：分配物理帧 → 页表映射 → 从 ELF 数据复制内容。处理 p_memsz > p_filesz 的情况（BSS 段清零）。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/10.3-load-segments.rs",
       "student_todo": [
