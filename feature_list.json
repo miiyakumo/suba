@@ -1795,7 +1795,7 @@
       "name": "启用中断和优先级控制",
       "description": "配置 sstatus.SIE 全局中断使能，sie 寄存器启用外部中断和时钟中断。实现中断优先级控制——时钟中断抢占外部中断。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.9-enable-interrupts.rs",

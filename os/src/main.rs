@@ -28,6 +28,7 @@ mod driver;
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use suba_kernel::arch::CpuOps;
 use suba_kernel::driver::Console;
 use suba_kernel::mm::heap;
 use suba_kernel::task::{RoundRobinScheduler, TaskManager};
@@ -189,6 +190,43 @@ pub extern "C" fn rust_main() -> ! {
     // init_trap() 写入 stvec: csrw stvec, trap_entry
     arch::riscv64::init_trap();
     uart_puts("[suba] trap vector set\n");
+
+    // ---- Step 4.5: 初始化中断控制器 ----
+    // 初始化 CLINT 时钟中断：设置第一次 timer 并使能 sie.STIE
+    driver::clint::init();
+    uart_puts("[suba] CLINT initialized (timer interrupt)\n");
+
+    // 初始化 PLIC 外部中断：配置 UART0 路由到 S-mode，使能 sie.SEIE
+    driver::plic::init();
+    uart_puts("[suba] PLIC initialized (UART0 → S-mode)\n");
+
+    // ---- Step 4.6: 启用全局中断 ----
+    // TODO(student): 设置 sstatus.SIE = 1，允许 CPU 响应 S-mode 中断
+    //
+    // ## 教学概念：中断使能的两级控制
+    //
+    // RISC-V 中断使能有两级：
+    // 1. **sie 寄存器**：按中断类型使能（STIE=时钟, SEIE=外部, SSIE=软件）
+    //    - 已在 clint::init() 和 plic::init() 中设置
+    // 2. **sstatus.SIE**：S-mode 全局中断总开关
+    //    - SIE=1: 允许 CPU 响应已使能的中断
+    //    - SIE=0: 忽略所有 S-mode 中断
+    //
+    // 两级都打开，中断才能到达 CPU。这提供了灵活的中断控制：
+    // - 关闭 sstatus.SIE：临时屏蔽所有中断（临界区保护）
+    // - 关闭 sie.STIE：仅禁用时钟中断
+    //
+    // ## 教学概念：中断优先级
+    //
+    // RISC-V 硬件中断优先级（从高到低）：
+    //   1. Supervisor software interrupt (ssi)
+    //   2. Supervisor timer interrupt (sti)   ← 时钟中断优先级更高
+    //   3. Supervisor external interrupt (sei) ← 外部中断优先级较低
+    //
+    // 当多个中断同时挂起时，CPU 总是先处理优先级最高的。
+    // 这意味着时钟中断可以抢占外部中断处理，保证调度的实时性。
+    arch::riscv64::Riscv64CpuOps::enable_interrupts();
+    uart_puts("[suba] interrupts enabled (sstatus.SIE=1)\n");
 
     // ---- Step 5: 页表测试 ----
     uart_puts("[suba] running page table tests...\n");
