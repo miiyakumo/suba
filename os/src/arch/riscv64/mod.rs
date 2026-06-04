@@ -1182,3 +1182,126 @@ fn elf_flags_to_pte_flags(elf_flags: u32) -> page::PteFlags {
     }
     page::PteFlags(bits)
 }
+
+// ============================================================================
+// ELF 加载器实现 (ElfLoader trait)
+// ============================================================================
+
+/// RISC-V 64 位 ELF 加载器
+///
+/// 实现 kernel crate 的 [`suba_kernel::loader::ElfLoader`] trait，
+/// 整合 ELF 解析、段加载和用户栈映射为一个完整的加载流程。
+///
+/// ## 教学概念：完整的 ELF 加载流程
+///
+/// 从 ELF 字节数据到可执行的用户程序，需要 5 个步骤：
+///
+/// ```text
+/// ELF 数据 (字节切片)
+///   │
+///   ├─ Step 1: parse_elf_header()
+///   │    验证魔数、64位、小端、RISC-V、可执行
+///   │    提取 entry_point 和程序头表位置
+///   │
+///   ├─ Step 2: parse_program_headers()
+///   │    遍历程序头表，解析每个段描述符
+///   │
+///   ├─ Step 3: UserAddrSpace::new()
+///   │    创建独立的 SV39 用户页表
+///   │    复制内核映射到高地址区域
+///   │
+///   ├─ Step 4: load_segments()
+///   │    为每个 PT_LOAD 段分配物理帧
+///   │    复制文件内容，清零 BSS
+///   │    映射到用户虚拟地址空间
+///   │
+///   ├─ Step 5: map_user_stack()
+///   │    分配 8MB 用户栈
+///   │    映射到 USER_STACK_TOP 向下增长
+///   │
+///   └─ 返回 (entry_point, user_stack_top)
+/// ```
+///
+/// ## 教学概念：加载器的角色
+///
+/// 加载器是"静态文件"到"动态执行"的桥梁：
+/// - 输入：ELF 文件的字节数据（来自文件系统/initrd）
+/// - 输出：入口地址 + 栈顶地址（用于设置 TrapFrame 并 sret 到用户态）
+///
+/// 加载器不负责"执行"程序——它只准备好内存环境。
+/// 执行由 `enter_user_mode()` 完成：设置 sepc=entry, sp=stack_top, sret。
+pub struct Riscv64ElfLoader;
+
+impl suba_kernel::loader::ElfLoader for Riscv64ElfLoader {
+    /// 从 ELF 数据加载用户程序到新的地址空间
+    ///
+    /// 完整流程：解析 ELF → 创建用户页表 → 加载段 → 映射栈。
+    ///
+    /// # 参数
+    /// - `data`: ELF 文件的原始字节
+    ///
+    /// # 返回值
+    /// 成功返回 `(entry_point, user_stack_top)`：
+    /// - `entry_point`: 用户程序入口虚拟地址（写入 sepc）
+    /// - `user_stack_top`: 用户栈顶虚拟地址（写入 x2_sp）
+    ///
+    /// 失败返回 `Err(())`，可能原因：
+    /// - ELF 头验证失败（魔数、架构、类型）
+    /// - 程序头表超出数据范围
+    /// - 物理帧分配失败
+    /// - 段数据超出 ELF 文件范围
+    fn load_elf(data: &[u8]) -> Result<(usize, usize), ()> {
+        use suba_kernel::loader::{parse_elf_header, parse_program_headers};
+
+        // Step 1: 解析并验证 ELF 头
+        // 提取入口点地址和程序头表位置
+        let (entry, phoff, phentsize, phnum) = parse_elf_header(data).map_err(|_| ())?;
+
+        // Step 2: 解析所有程序头
+        // 遍历程序头表，收集每个段的描述信息
+        let phdrs = parse_program_headers(data, phoff, phentsize, phnum).map_err(|_| ())?;
+
+        // Step 3: 创建用户地址空间
+        // 分配新的 SV39 根页表，复制内核映射到高地址
+        let user_space = page::UserAddrSpace::new().map_err(|_| ())?;
+
+        // Step 4: 加载 PT_LOAD 段
+        // 为每个可加载段分配物理帧、复制数据、映射到用户页表
+        load_segments(data, &phdrs, &user_space)?;
+
+        // Step 5: 映射用户栈
+        // 在 USER_STACK_TOP 向下分配 8MB 栈空间
+        let user_stack_top = user_space.map_user_stack().map_err(|_| ())?;
+
+        Ok((entry as usize, user_stack_top))
+    }
+}
+
+/// 从 ELF 数据加载用户程序，返回完整的地址空间
+///
+/// 与 [`Riscv64ElfLoader::load_elf`] 类似，但额外返回 [`page::UserAddrSpace`]。
+/// 调用者需要持有地址空间来切换页表（`user_space.activate()`）。
+///
+/// ## 教学概念：为什么需要这个函数？
+///
+/// `ElfLoader` trait 的 `load_elf` 只返回 `(entry, stack_top)`，
+/// 但在实际内核启动流程中，还需要 `UserAddrSpace` 来：
+/// 1. 切换 satp 到用户页表（`user_space.activate()`）
+/// 2. 设置 sscratch 为 TrapFrame 指针
+/// 3. 调用 `trap_return` 执行 sret
+///
+/// # 返回值
+/// 成功返回 `(user_space, entry_point, user_stack_top)`。
+pub fn load_elf_to_space(
+    data: &[u8],
+) -> Result<(page::UserAddrSpace, usize, usize), ()> {
+    use suba_kernel::loader::{parse_elf_header, parse_program_headers};
+
+    let (entry, phoff, phentsize, phnum) = parse_elf_header(data).map_err(|_| ())?;
+    let phdrs = parse_program_headers(data, phoff, phentsize, phnum).map_err(|_| ())?;
+    let user_space = page::UserAddrSpace::new().map_err(|_| ())?;
+    load_segments(data, &phdrs, &user_space)?;
+    let user_stack_top = user_space.map_user_stack().map_err(|_| ())?;
+
+    Ok((user_space, entry as usize, user_stack_top))
+}
