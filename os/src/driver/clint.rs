@@ -39,10 +39,11 @@
 //! +0xBFF8  mtime        (64-bit, 全局计数器)
 //! ```
 //!
-// 允许 dead_code：clint 常量和函数在后续 feature (9.6+) 中使用
+// 允许 dead_code：clint 常量和部分函数在后续 feature (9.7+) 中使用
 #![allow(dead_code)]
 
 use core::arch::asm;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 // ============================================================================
 // CLINT 硬件常量
@@ -137,6 +138,7 @@ pub fn set_next_timer() {
 /// 3. 中断到来时，trap_handler 调用 `set_next_timer()` 设置下一次
 ///
 /// 这形成了周期性时钟中断，驱动任务调度和时间片管理。
+#[allow(dead_code)]
 pub fn init() {
     // 设置第一次时钟中断
     set_next_timer();
@@ -153,4 +155,67 @@ pub fn init() {
             options(nomem, nostack)
         );
     }
+}
+
+// ============================================================================
+// 全局 Tick 计数器
+// ============================================================================
+
+/// 全局时钟中断计数器
+///
+/// 每次时钟中断递增一次，用于：
+/// - 计算系统运行时间（ticks / TICKS_PER_SEC = 秒数）
+/// - 驱动时间片轮转调度（每个任务分配 N 个 tick）
+/// - 实现内核定时器（sleep、超时等）
+///
+/// ## 教学概念：为什么用 AtomicUsize？
+///
+/// 时钟中断可能在任意时刻打断正在执行的代码。
+/// 如果用普通 `usize`，递增操作（load → add → store）可能被中断打断，
+/// 导致计数丢失。`AtomicUsize` 保证操作的原子性。
+static TIMER_TICKS: AtomicUsize = AtomicUsize::new(0);
+
+/// 每秒时钟中断次数
+///
+/// TIMER_INTERVAL = 1_000_000 tick，mtime 频率 10 MHz，
+/// 所以 10_000_000 / 1_000_000 = 10 次/秒（每 100ms 一次）。
+#[allow(dead_code)]
+pub const TICKS_PER_SEC: usize = 10;
+
+/// 获取当前 tick 计数
+///
+/// 返回自内核启动以来的时钟中断次数。
+/// 用于时间片管理和系统运行时间计算。
+#[allow(dead_code)]
+#[inline]
+pub fn get_ticks() -> usize {
+    TIMER_TICKS.load(Ordering::Relaxed)
+}
+
+/// 处理时钟中断
+///
+/// 时钟中断处理的核心函数，由 trap_handler 在 scause == 5 时调用。
+///
+/// ## 教学概念：时钟中断处理流程
+///
+/// ```text
+/// 硬件: mtime >= mtimecmp
+///   → CPU 触发 Supervisor timer interrupt (scause = 5)
+///   → trap_handler 分发到此处
+///   → 1. 递增 tick 计数
+///   → 2. 设置下一次中断（维持周期性）
+///   → 3. 后续：检查是否需要调度（时间片用完）
+/// ```
+///
+/// 这是"滴答驱动"（tick-driven）内核的基础：
+/// 每个 tick 是内核感知时间流逝的最小单位。
+pub fn handle_timer_interrupt() {
+    // 递增全局 tick 计数
+    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
+
+    // 设置下一次时钟中断（保持周期性）
+    set_next_timer();
+
+    // TODO: 时间片调度检查（后续 feature）
+    // 当 tick 计数达到时间片阈值时，触发任务切换
 }

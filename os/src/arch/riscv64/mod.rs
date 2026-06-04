@@ -102,8 +102,7 @@ pub unsafe extern "C" fn trap_handler(trap_frame: *mut TrapFrame) {
         match scause & !INTERRUPT_BIT {
             5 => {
                 // Supervisor timer interrupt（时钟中断）
-                set_next_timer();
-                // TODO: 时间片调度（后续 feature）
+                crate::driver::clint::handle_timer_interrupt();
             }
             9 => {
                 // Supervisor external interrupt（外部设备中断）
@@ -311,34 +310,6 @@ fn read_sepc() -> usize {
     sepc
 }
 
-/// 设置下一次时钟中断
-///
-/// 通过 SBI 调用 `set_timer` 设置比较器。
-/// 当 mtime >= stimecmp 时触发时钟中断。
-///
-/// ## 教学概念：RISC-V 时钟机制
-///
-/// RISC-V 使用 memory-mapped 的 mtime 寄存器（单调递增计数器）
-/// 和 stimecmp 寄存器（比较值）来产生时钟中断。
-/// 当 mtime >= stimecmp 时，触发 Supervisor timer interrupt。
-///
-/// 在 QEMU 中，mtime 频率约为 10MHz。
-/// 我们设置 100ms 的间隔（10_000_000 个 tick）。
-fn set_next_timer() {
-    // 读取当前时间
-    let current_time: u64;
-    // SAFETY: time 是只读 CSR（RDCYCLE 等效）
-    unsafe {
-        asm!(
-            "csrr {}, time",
-            out(reg) current_time,
-            options(nomem, nostack)
-        );
-    }
-    // 设置下一次时钟中断（100ms 后，QEMU ~10MHz）
-    const TIMER_INTERVAL: u64 = 10_000_000;
-    sbi_rt::set_timer(current_time + TIMER_INTERVAL);
-}
 
 // ---------------------------------------------------------------------------
 // 常量
