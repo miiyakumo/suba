@@ -1996,7 +1996,7 @@
       "name": "内核启动并打印信息",
       "description": "验证内核在 QEMU 上启动成功：entry.S → rust_main → 打印 'suba: boot complete' → 关机。端到端的最小验证。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/11.1-boot-test.rs",
