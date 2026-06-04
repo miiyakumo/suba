@@ -311,10 +311,48 @@ fn schedule_fn() -> *mut arch::riscv64::TrapFrame {
     arch::riscv64::NEXT_TRAP_FRAME.load(core::sync::atomic::Ordering::Acquire)
 }
 
+/// 检查是否所有用户任务已退出。
+///
+/// 遍历 TASK_MANAGER 中所有非 idle (PID > 1) 的任务，
+/// 如果全部处于 Exited 状态，返回 true。
+///
+/// ## 教学概念：关机检测
+///
+/// 内核通过定时检查任务状态来决定何时关机：
+/// - 当所有用户任务都退出（Exited）时，没有更多工作需要完成
+/// - 内核进行最后一次资源回收，然后通过 SBI 调用关闭硬件
+/// - 这避免了内核在 QEMU 中"挂死"——永远等待不存在的就绪任务
+///
+/// idle 任务 (PID=1) 永远处于 Running 状态，不参与检查。
+///
+/// TODO(student): 关机检测和资源回收
+/// 当前实现检测所有用户任务退出后关机。
+/// 改进方向：
+/// 1. 在关机前遍历 TASK_MANAGER 回收所有任务资源
+/// 2. 打印每个任务的退出码和运行时间摘要
+/// 3. 调用 power::shutdown 前确保所有 I/O 已刷新
+fn all_user_tasks_exited() -> bool {
+    if let Some(tm) = TASK_MANAGER.get() {
+        let tm = tm.lock();
+        let total = tm.len();
+        // idle 任务 (PID=1) 总是 Running，只检查 PID >= 2 的用户任务
+        for pid in 2..=total {
+            if let Some(task) = tm.get_task(pid) {
+                if task.lock().state != TaskState::Exited {
+                    return false;
+                }
+            }
+        }
+        total > 1 // 至少有一个用户任务存在
+    } else {
+        false
+    }
+}
+
 /// 调度器 — 选择下一个任务并切换。
 ///
 /// 从调度器取出下一个就绪任务，通过上下文切换跳转到该任务。
-/// 如果没有就绪任务，进入 idle 循环（等待中断唤醒）。
+/// 如果没有就绪任务且所有用户任务已退出，触发系统关机。
 fn schedule() {
     // 从调度器获取下一个就绪任务的信息
     let next_info = if let Some(sched) = SCHEDULER.get() {
@@ -364,8 +402,22 @@ fn schedule() {
             }
             // context_switch 返回：当前任务被恢复
         }
+    } else {
+        // TODO(student): 关机流程 — 检测所有任务退出并关闭系统
+        // 当调度器队列中没有就绪任务时，检查是否所有用户任务已退出。
+        // 如果是，说明内核已经完成了所有工作，应该正常关机。
+        //
+        // 关机流程：
+        // 1. 遍历 TASK_MANAGER 检查所有用户任务状态
+        // 2. 所有用户任务退出 → 打印关机摘要
+        // 3. 通过 SBI system_reset 关闭 QEMU
+        //
+        // 参考：power::shutdown(false) 使用 sbi_rt 的 system_reset
+        if all_user_tasks_exited() {
+            uart_puts("[suba] all user tasks exited, shutting down...\n");
+            power::shutdown(false);
+        }
     }
-    // 没有就绪任务时：当前任务继续运行
 }
 
 /// 用户任务入口 trampoline

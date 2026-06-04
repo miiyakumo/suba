@@ -3,7 +3,7 @@
   "project": "suba",
   "total": 105,
   "summary": {
-    "completed": 28,
+    "completed": 29,
     "in_progress": 0,
     "pending": 80
   },
@@ -2165,9 +2165,20 @@
       "name": "内核关机和清理",
       "description": "验证内核正常关机流程：所有任务退出 → 资源回收 → 通过 SBI 或 test device 关闭 QEMU。确保没有资源泄漏。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "correctness+pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "cargo build 通过零警告, all_user_tasks_exited() 遍历 TASK_MANAGER 检测, schedule() shutdown 调用使用 ! 类型保证不返回, 边界条件: 只有idle/任务Running/多PID/空TASK_MANAGER"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "power.rs: 关机流程教学注释+TODO, main.rs: all_user_tasks_exited() 文档注释+TODO, .solution/11.11-shutdown.rs 完整参考实现含流程图+边界分析, 关机流程文本图完整"
+        }
+      ],
       "solution": ".solution/11.11-shutdown.rs",
       "student_todo": [
         "os/src/power.rs:关机流程"
