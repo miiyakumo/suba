@@ -52,6 +52,7 @@ mod util;
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use suba_kernel::arch::CpuOps;
 use suba_kernel::driver::Console;
 use suba_kernel::mm::heap;
 use suba_kernel::task::{RoundRobinScheduler, TaskManager};
@@ -347,6 +348,7 @@ pub extern "C" fn rust_main() -> ! {
     //
     // 当前阶段：只有一个 idle 任务，所以总是调度它。
     // 后续添加更多任务后，调度器会在它们之间切换。
+    uart_puts("suba: boot complete\n");
     uart_puts("[boot] starting scheduler...\n");
 
     if let Some(task) = sched.next() {
