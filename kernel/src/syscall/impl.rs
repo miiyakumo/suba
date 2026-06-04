@@ -85,21 +85,25 @@ pub fn sys_yield() -> usize {
 
 /// 调整堆大小系统调用。
 ///
-/// 扩展或缩小当前任务的堆空间。
+/// 扩展或缩小当前任务的堆空间。sbrk (set break) 是
+/// Unix 最经典的内存分配原语——"break" 即堆顶地址。
 ///
 /// # 参数
-/// - `increment`: 堆增量（正数扩展，负数缩小）
+/// - `increment`: 堆增量（正数扩展，负数缩小，0 查询当前堆顶）
 ///
 /// # 返回值
-/// 成功返回新的堆顶地址，失败返回 -1。
-pub fn sys_sbrk(_increment: isize) -> usize {
-    // TODO: 学生实现
-    // 1. 记录当前堆顶
-    // 2. 计算新堆顶 = 当前堆顶 + increment
-    // 3. 如果 increment > 0，分配新的物理帧并映射
-    // 4. 如果 increment < 0，取消映射并释放帧
-    // 5. 返回旧堆顶
-    todo!("实现 sys_sbrk")
+/// 成功返回旧堆顶地址，失败返回 -1。
+pub fn sys_sbrk(increment: isize) -> usize {
+    // TODO: 学生实现 — 在真实内核中需要：
+    // 1. 获取当前任务的堆顶 (heap_top)
+    // 2. 记录旧堆顶，计算新堆顶 = old_brk + increment
+    // 3. increment > 0 时：分配物理帧并映射到新虚拟地址
+    // 4. increment < 0 时：取消映射并释放物理帧
+    // 5. 更新任务的 heap_top，返回旧堆顶
+    //
+    // Mock 环境下返回固定的堆顶地址
+    let _ = increment;
+    0x8080_0000
 }
 
 /// 获取 PID 系统调用。

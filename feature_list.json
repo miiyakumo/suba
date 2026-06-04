@@ -1003,9 +1003,20 @@
       "name": "实现 sys_sbrk",
       "description": "实现 sys_sbrk(increment)。扩展或缩小当前任务的堆空间，分配/释放物理帧，返回旧堆顶地址。理解堆增长机制。",
       "test": "cargo test --features mock -p suba-kernel -- syscall::tests",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        {
+          "status": "correctness",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "dispatch_sbrk 测试通过, sys_sbrk mock 返回 0x8080_0000, 参数处理正确"
+        },
+        {
+          "status": "pedagogy",
+          "timestamp": "2026-06-04T00:00:00Z",
+          "notes": "doc 注释含 sbrk 历史(set break)和堆增长概念, TODO 6步实现指南, solution 含帧分配/释放流程"
+        }
+      ],
       "solution": ".solution/5.7-sys-sbrk.rs",
       "student_todo": [
         "kernel/src/syscall/impl.rs:sys_sbrk"

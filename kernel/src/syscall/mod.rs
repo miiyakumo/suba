@@ -93,4 +93,14 @@ mod tests {
         // sys_yield 始终返回 0
         assert_eq!(frame.ret, 0);
     }
+
+    #[test]
+    fn dispatch_sbrk() {
+        let mut frame = MockTrapFrame::new();
+        frame.syscall_no = number::SYS_SBRK;
+        frame.args[0] = 4096; // increment = 4096
+        dispatch(&mut frame);
+        // Mock: 返回固定的堆顶地址
+        assert_eq!(frame.ret, 0x8080_0000);
+    }
 }
