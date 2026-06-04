@@ -633,3 +633,65 @@ pub fn map_page(
 
     Ok(())
 }
+
+// ============================================================================
+// SV39 页表查询（lookup）
+// ============================================================================
+
+/// 页表查询错误
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LookupError {
+    /// 地址未映射
+    NotMapped,
+    /// 物理内存访问失败
+    PhysAccessFailed,
+}
+
+/// 查询虚拟地址对应的物理页号和标志位
+///
+/// 遍历三级页表，返回叶子 PTE 的物理页号和标志位。
+///
+/// ## 教学概念：地址查询
+///
+/// 与 `translate_va` 类似，但返回更多信息（PPN + flags）。
+/// 用于检查映射是否存在、获取权限标志等。
+///
+/// # 参数
+/// - `va`: 要查询的虚拟地址
+/// - `root_ppn`: 根页表的物理页号
+/// - `phys_read`: 从物理地址读取 u64 的函数
+///
+/// # 返回
+/// - `Ok((ppn, flags))`: 物理页号和标志位
+/// - `Err(e)`: 查询失败的原因
+pub fn lookup_page(
+    va: usize,
+    root_ppn: usize,
+    phys_read: fn(usize) -> Result<u64, ()>,
+) -> Result<(usize, PteFlags), LookupError> {
+    let vpn = va_to_vpn(va);
+    let mut current_ppn = root_ppn;
+
+    // 从 Level 2 遍历到 Level 0
+    for level in (0..PAGE_TABLE_LEVELS).rev() {
+        let idx = vpn_level_index(vpn, level);
+        let pte_addr = current_ppn * PAGE_SIZE + idx * 8;
+
+        let pte_val = phys_read(pte_addr).map_err(|_| LookupError::PhysAccessFailed)?;
+        let pte = PageTableEntry::from_bits(pte_val);
+
+        if !pte.is_valid() {
+            return Err(LookupError::NotMapped);
+        }
+
+        if level == 0 {
+            // 到达叶子 PTE：返回 PPN 和 flags
+            return Ok((pte.ppn() as usize, pte.flags()));
+        }
+
+        // 中间级别：继续下一级
+        current_ppn = pte.ppn() as usize;
+    }
+
+    Err(LookupError::NotMapped)
+}

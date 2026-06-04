@@ -1,7 +1,7 @@
 // .solution/8.4-sv39-unmap-translate.rs — 页表 unmap 和 translate 参考实现
 //
 // 本文件是 feature 8.4 的完整参考实现。
-// 学生应在 os/src/arch/riscv64/page.rs 中实现 unmap_page 和 translate_va。
+// 学生应在 os/src/arch/riscv64/page.rs 中实现 unmap_page 和 lookup_page。
 
 // ============================================================================
 // translate_va — 虚拟地址翻译
@@ -86,4 +86,41 @@ pub fn unmap_page(
     }
 
     Err(MapError::NotMapped)
+}
+
+// ============================================================================
+// lookup_page — 查询页表映射
+// ============================================================================
+
+/// 查询虚拟地址对应的物理页号和标志位
+///
+/// 遍历三级页表，返回叶子 PTE 的物理页号和标志位。
+/// 用于检查映射是否存在、获取权限标志等。
+pub fn lookup_page(
+    va: usize,
+    root_ppn: usize,
+    phys_read: fn(usize) -> Result<u64, ()>,
+) -> Result<(usize, PteFlags), LookupError> {
+    let vpn = va_to_vpn(va);
+    let mut current_ppn = root_ppn;
+
+    for level in (0..PAGE_TABLE_LEVELS).rev() {
+        let idx = vpn_level_index(vpn, level);
+        let pte_addr = current_ppn * PAGE_SIZE + idx * 8;
+
+        let pte_val = phys_read(pte_addr).map_err(|_| LookupError::PhysAccessFailed)?;
+        let pte = PageTableEntry::from_bits(pte_val);
+
+        if !pte.is_valid() {
+            return Err(LookupError::NotMapped);
+        }
+
+        if level == 0 {
+            return Ok((pte.ppn() as usize, pte.flags()));
+        }
+
+        current_ppn = pte.ppn() as usize;
+    }
+
+    Err(LookupError::NotMapped)
 }
