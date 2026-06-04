@@ -20,7 +20,7 @@
 pub mod page;
 
 use core::arch::asm;
-use suba_kernel::arch::{Context, CpuOps, HwTrapFrame, SyscallFrame};
+use suba_kernel::arch::{Context, CpuOps, HwTrapFrame, MmOps, PA, SyscallFrame, VA};
 
 // 包含上下文切换汇编代码
 core::arch::global_asm!(include_str!("switch.S"));
@@ -471,6 +471,89 @@ impl CpuOps for Riscv64CpuOps {
             );
         }
         (sstatus & SSTATUS_SIE) != 0
+    }
+}
+
+// ============================================================================
+// Riscv64MmOps — RISC-V 内存管理操作
+// ============================================================================
+
+/// RISC-V 64 位内存管理操作实现。
+///
+/// 通过 SV39 页表和 CSR 寄存器实现地址翻译、TLB 管理等。
+///
+/// ## 教学概念：MmOps trait
+///
+/// MmOps 是内核与 MMU 硬件之间的桥梁：
+/// - `translate_va`: 使用页表将虚拟地址翻译为物理地址
+/// - `flush_tlb`: 刷新 TLB 缓存（修改页表后必须刷新）
+/// - `current_page_table`: 读取当前页表根地址（satp.PPN）
+/// - `switch_page_table`: 切换到新的页表（写入 satp）
+pub struct Riscv64MmOps;
+
+impl MmOps for Riscv64MmOps {
+    /// 将虚拟地址翻译为物理地址
+    ///
+    /// 使用当前页表（satp.PPN）进行三级页表遍历。
+    ///
+    /// ## 教学概念：地址翻译流程
+    ///
+    /// 1. 读取 satp 获取根页表 PPN
+    /// 2. 从 VPN[2] → VPN[1] → VPN[0] 逐级查找
+    /// 3. 找到叶子 PTE，计算物理地址 = PPN × 4096 + offset
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保虚拟地址在当前页表中有有效映射。
+    unsafe fn translate_va(va: VA) -> Option<PA> {
+        let satp = read_satp();
+        let root_ppn = satp & 0x0FFF_FFFF_FFFF; // 低 44 位是 PPN
+        match page::translate_va(va.as_usize(), root_ppn, page::phys_read_u64) {
+            Ok(pa) => Some(PA::new(pa)),
+            Err(_) => None,
+        }
+    }
+
+    /// 刷新全部 TLB 条目
+    ///
+    /// 执行 `sfence.vma` 指令，清除所有 TLB 缓存。
+    /// 在修改页表后必须调用，否则旧的翻译结果可能被使用。
+    fn flush_tlb() {
+        flush_tlb_all();
+    }
+
+    /// 刷新指定虚拟地址的 TLB 条目
+    ///
+    /// 执行 `sfence.vma vaddr, zero`，仅清除特定地址的 TLB 缓存。
+    /// 比全部刷新更高效，适用于单页映射变更。
+    fn flush_tlb_addr(addr: usize) {
+        flush_tlb_addr(addr);
+    }
+
+    /// 获取当前页表根物理地址
+    ///
+    /// 读取 satp 寄存器，提取 PPN 字段并转换为物理地址。
+    ///
+    /// satp 格式：MODE[63:60] | ASID[59:44] | PPN[43:0]
+    fn current_page_table() -> PA {
+        let satp = read_satp();
+        let root_ppn = satp & 0x0FFF_FFFF_FFFF; // 低 44 位是 PPN
+        PA::new(root_ppn << 12) // PPN → 物理地址
+    }
+
+    /// 切换到新的页表
+    ///
+    /// 写入 satp 寄存器：MODE=SV39(8) | PPN，并执行 sfence.vma。
+    ///
+    /// # Safety
+    ///
+    /// `pt_root` 必须指向有效的 SV39 页表。
+    unsafe fn switch_page_table(pt_root: PA) {
+        let root_ppn = pt_root.as_usize() >> 12;
+        // SAFETY: 调用者确保 pt_root 指向有效页表
+        unsafe {
+            switch_page_table(root_ppn);
+        }
     }
 }
 

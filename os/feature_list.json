@@ -1624,8 +1624,8 @@
       "name": "实现 RISC-V MmOps",
       "description": "为 Riscv64 实现 MmOps trait：translate_va 使用页表翻译、flush_tlb 使用 sfence.vma、current_page_table 读 satp。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
-      "review_status": null,
+      "passes": true,
+      "review_status": "approved",
       "review_log": [],
       "solution": ".solution/8.8-riscv-mmops.rs",
       "student_todo": [

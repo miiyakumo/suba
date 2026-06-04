@@ -766,7 +766,7 @@ pub fn alloc_zeroed_frame() -> Option<usize> {
 /// # Safety
 ///
 /// `pa` 必须是有效的物理地址且 8 字节对齐。
-fn phys_read_u64(pa: usize) -> Result<u64, ()> {
+pub fn phys_read_u64(pa: usize) -> Result<u64, ()> {
     // 在身份映射下，物理地址 = 虚拟地址
     // SAFETY: 调用者确保地址有效
     unsafe { Ok(core::ptr::read(pa as *const u64)) }
