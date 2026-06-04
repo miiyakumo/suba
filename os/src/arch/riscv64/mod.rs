@@ -211,7 +211,8 @@ pub fn init_trap() {
 /// - `user_entry` 必须是有效的用户态代码地址
 /// - `user_sp` 必须是有效的用户栈顶地址
 /// - `kernel_sp` 必须是有效的内核栈顶地址
-pub unsafe fn drop_to_user_mode(user_entry: usize, user_sp: usize, kernel_sp: usize) {
+/// - `argc` 传递给用户程序的参数（写入 a0 寄存器）
+pub unsafe fn drop_to_user_mode(user_entry: usize, user_sp: usize, kernel_sp: usize, argc: usize) {
     // 创建用户态陷阱帧
     let mut tf = TrapFrame::new();
 
@@ -230,6 +231,9 @@ pub unsafe fn drop_to_user_mode(user_entry: usize, user_sp: usize, kernel_sp: us
 
     // 设置内核栈指针（从 U-mode 陷入时 trap_entry 会用到）
     tf.kernel_sp = kernel_sp;
+
+    // a0 = argc：用户程序通过 a0 获取参数个数
+    tf.x10_a0 = argc;
 
     // 通过 trap_return 切换到用户态
     // trap_return 会恢复所有寄存器并执行 sret
@@ -252,12 +256,15 @@ pub unsafe fn setup_user_trap_frame(
     user_entry: usize,
     user_sp: usize,
     kernel_sp: usize,
+    argc: usize,
 ) {
     tf.sepc = user_entry;
     // SPP=0 (User), SPIE=1, SIE=0
     tf.sstatus = 1 << 5;
     tf.x2_sp = user_sp;
     tf.kernel_sp = kernel_sp;
+    // a0 = argc：用户程序通过 a0 获取参数个数
+    tf.x10_a0 = argc;
 }
 
 // ---------------------------------------------------------------------------
@@ -781,7 +788,16 @@ impl TrapFrame {
     /// - `entry`: 用户程序入口地址（sret 后的 PC）
     /// - `user_sp`: 用户栈顶地址
     /// - `kernel_sp`: 内核栈顶地址（从用户态 trap 回来时使用）
-    pub fn set_user_trap_frame(&mut self, entry: usize, user_sp: usize, kernel_sp: usize) {
+    /// - `argc`: 传递给用户程序的参数（写入 a0 寄存器）
+    ///
+    /// ## 教学概念：a0 = argc 的 ABI 约定
+    ///
+    /// RISC-V 调用约定（ILP32/LP64）中，a0（x10）既是第一个参数寄存器，
+    /// 也是返回值寄存器。用户程序的 `_start` 入口点通过 a0 获取 argc。
+    ///
+    /// 对于简单的单程序内核，argc 通常为 0 或 1。
+    /// 后续扩展为 argv 时，a0 = argc，a1 = argv 指针。
+    pub fn set_user_trap_frame(&mut self, entry: usize, user_sp: usize, kernel_sp: usize, argc: usize) {
         // sstatus 设置：
         // - SPP (bit 8) = 0: sret 后进入 U-mode
         // - SPIE (bit 5) = 1: sret 后 SIE = 1（启用中断）
@@ -800,7 +816,7 @@ impl TrapFrame {
         self.x7_t2 = 0;
         self.x8_s0 = 0;
         self.x9_s1 = 0;
-        self.x10_a0 = 0;
+        self.x10_a0 = argc; // 用户程序通过 a0 获取 argc
         self.x11_a1 = 0;
         self.x12_a2 = 0;
         self.x13_a3 = 0;
@@ -862,10 +878,11 @@ impl TrapFrame {
 /// - `entry`: 用户程序入口地址
 /// - `user_sp`: 用户栈顶地址
 /// - `kernel_sp`: 内核栈顶地址（从用户态 trap 回来时切换到此栈）
-pub fn enter_user_mode(entry: usize, user_sp: usize, kernel_sp: usize) -> ! {
+/// - `argc`: 传递给用户程序的参数（写入 a0 寄存器）
+pub fn enter_user_mode(entry: usize, user_sp: usize, kernel_sp: usize, argc: usize) -> ! {
     // 创建用户态陷阱帧
     let mut tf = TrapFrame::new();
-    tf.set_user_trap_frame(entry, user_sp, kernel_sp);
+    tf.set_user_trap_frame(entry, user_sp, kernel_sp, argc);
 
     // 将 TrapFrame 指针写入 sscratch（供下次从用户态 trap 回来时使用）
     // SAFETY: tf 是栈上有效的 TrapFrame，生命周期覆盖整个函数
