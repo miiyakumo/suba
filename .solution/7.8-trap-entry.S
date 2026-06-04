@@ -83,19 +83,22 @@
 # 5. 调用 Rust 的 trap_handler(trap_frame_ptr)
 trap_entry:
     # ---- Step 1: 获取 TrapFrame 指针 ----
-    # sscratch 在进入陷阱前被设置为 TrapFrame 的地址
+    # TODO(student): 用 csrrw 交换 a0 和 sscratch
     # 交换后：a0 = TrapFrame 指针，sscratch = 原 a0 值
+    # 提示: csrrw rd, csr, rs — 原子交换 rd 和 csr 的值
     csrrw a0, sscratch, a0
 
     # ---- Step 2: 保存全部通用寄存器 ----
-    # 注意：此时 a0 已经是 TrapFrame 指针
-    # 原 a0 值保存在 sscratch 中，稍后恢复
+    # TODO(student): 用 sd 指令保存所有寄存器到 a0 指向的 TrapFrame
+    # 注意：a0 此时是 TrapFrame 指针，原 a0 值在 sscratch 中
+    # TrapFrame 布局: sepc=offset 0, ra=offset 8, sp=offset 16, ...
+    # 提示: sd rs, offset(base) — 将寄存器 rs 存储到 base+offset 地址
 
     # 保存 sepc（陷阱返回地址）
     csrr t0, sepc
     sd t0, 0(a0)
 
-    # 保存通用寄存器
+    # 保存通用寄存器（除了 a0，后面单独处理）
     sd ra,  8(a0)
     sd sp,  16(a0)
     sd gp,  24(a0)
@@ -105,7 +108,7 @@ trap_entry:
     sd t2,  56(a0)
     sd s0,  64(a0)
     sd s1,  72(a0)
-    # a0 在后面单独保存（从 sscratch 恢复原值后）
+    # a0 在 Step 3 保存（先从 sscratch 恢复原值）
     sd a1,  88(a0)
     sd a2,  96(a0)
     sd a3,  104(a0)
@@ -129,25 +132,32 @@ trap_entry:
     sd t6,  248(a0)
 
     # ---- Step 3: 保存原 a0 和 sstatus ----
-    # 从 sscratch 读取原 a0 值并保存到 TrapFrame
+    # TODO(student): 从 sscratch 读取原 a0 值并保存到 TrapFrame.x10_a0
+    # 提示: csrr rd, csr — 读取 CSR 到寄存器
     csrr t0, sscratch
     sd t0, 80(a0)
 
-    # 保存 sstatus（陷阱发生时的状态）
+    # TODO(student): 保存 sstatus CSR 到 TrapFrame.sstatus (offset 256)
     csrr t0, sstatus
     sd t0, 256(a0)
 
     # ---- Step 4: 切换到内核栈（仅用户态进入时） ----
-    # 检查 sstatus.SPP 位（bit 8）
+    # TODO(student): 检查 sstatus.SPP 位 (bit 8)，决定是否切换栈
     # SPP=1: 陷阱来自 S-mode（内核态），不切换栈
-    # SPP=0: 陷阱来自 U-mode（用户态），切换到内核栈
+    # SPP=0: 陷阱来自 U-mode（用户态），需要切换到内核栈
+    # 提示:
+    #   1. csrr t0, sstatus — 读取 sstatus
+    #   2. li t1, 0x100     — SPP 位掩码 (1 << 8)
+    #   3. and t0, t0, t1   — 提取 SPP 位
+    #   4. bnez t0, .Lkernel_trap — SPP=1 跳过栈切换
+    #   5. ld sp, 264(a0)   — 从 TrapFrame.kernel_sp 加载内核栈
     csrr t0, sstatus
-    li t1, 0x100        # SPP 位掩码 (1 << 8)
+    li t1, 0x100
     and t0, t0, t1
-    bnez t0, .Lkernel_trap  # SPP=1，内核态陷阱，跳过栈切换
+    bnez t0, .Lkernel_trap
 
-    # 从用户态进入：切换到内核栈
-    ld sp, 264(a0)      # sp = TrapFrame.kernel_sp
+    # 来自用户态：切换到内核栈
+    ld sp, 264(a0)
 
 .Lkernel_trap:
     # 保存当前 sp 到 kernel_sp（无论是否切换了栈）
@@ -155,8 +165,10 @@ trap_entry:
     sd sp, 264(a0)
 
     # ---- Step 5: 调用 trap_handler ----
+    # TODO(student): 跳转到 Rust 的 trap_handler 函数
     # a0 已经是 TrapFrame 指针，直接作为参数传递
-    # 使用 la + jr 避免 JAL 范围限制
+    # 提示: la t0, trap_handler 加载地址，jr t0 跳转
+    # 使用 la+jr 而非 call，避免 JAL 范围限制（大代码模型）
     la t0, trap_handler
     jr t0
 
@@ -173,6 +185,8 @@ trap_entry:
 # 4. sret 返回
 trap_return:
     # ---- Step 1: 恢复 CSR ----
+    # TODO(student): 从 TrapFrame 恢复 sepc 和 sstatus
+    # 提示: ld t0, offset(a0) 然后 csrw csr, t0
     ld t0, 0(a0)
     csrw sepc, t0
 
@@ -180,10 +194,14 @@ trap_return:
     csrw sstatus, t0
 
     # ---- Step 2: 设置 sscratch ----
-    # 将 TrapFrame 指针保存到 sscratch，供下次陷阱使用
+    # TODO(student): 将 TrapFrame 指针写回 sscratch（供下次陷阱使用）
+    # 提示: csrw sscratch, a0
     csrw sscratch, a0
 
     # ---- Step 3: 恢复通用寄存器 ----
+    # TODO(student): 用 ld 指令从 TrapFrame 恢复所有通用寄存器
+    # 注意：a0 必须最后恢复（因为它是 TrapFrame 指针）
+    # 提示: ld rd, offset(a0) — 从 a0+offset 加载到寄存器
     ld ra,  8(a0)
     ld sp,  16(a0)
     ld gp,  24(a0)
@@ -220,5 +238,6 @@ trap_return:
     ld a0,  80(a0)
 
     # ---- Step 4: 陷阱返回 ----
-    # sret: PC ← sepc, SIE ← SPIE, 特权级 ← SPP
+    # TODO(student): 执行 sret 指令返回
+    # sret 硬件自动完成：PC ← sepc, SIE ← SPIE, 特权级 ← SPP
     sret

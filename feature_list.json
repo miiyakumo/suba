@@ -1424,8 +1424,11 @@
       "description": "在 os/src/arch/riscv64/trap.S 中实现 trap 入口汇编：保存所有寄存器到 TrapFrame、设置内核栈、调用 trap_handler、恢复寄存器、sret 返回。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
       "passes": true,
-      "review_status": null,
-      "review_log": [],
+      "review_status": "approved",
+      "review_log": [
+        "correctness: cargo build riscv64 零警告, trap.S 偏移量与 TrapFrame 一致, sscratch/sscratch 交换+全寄存器保存/恢复+SPP 检查+栈切换逻辑正确",
+        "pedagogy: 模块级教学注释完整 (RISC-V 陷阱处理流程), 5 个 student_todo 标记, .solution/ 参考实现完整"
+      ],
       "solution": ".solution/7.8-trap-entry.S",
       "student_todo": [
         "os/src/arch/riscv64/trap.S:trap_entry, trap_return"
