@@ -1750,7 +1750,7 @@
       "name": "CLINT 时钟中断处理",
       "description": "实现时钟中断处理：更新 mtimecmp 设置下一次中断、更新系统 tick 计数、触发任务调度。理解时间片轮转的硬件基础。",
       "test": "cd os && cargo build --target riscv64gc-unknown-none-elf",
-      "passes": false,
+      "passes": true,
       "review_status": null,
       "review_log": [],
       "solution": ".solution/9.6-clint-handler.rs",
