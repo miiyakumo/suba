@@ -1284,9 +1284,12 @@
       "name": "Phase 1 Mock 完整集成测试",
       "description": "编写 Phase 1 的完整集成测试：Mock 环境下 boot → 创建任务 → 系统调用 write → 读取文件 → 退出。验证 Mock 后端的完整教学闭环。",
       "test": "cargo test --features mock -p suba-kernel",
-      "passes": false,
-      "review_status": null,
-      "review_log": [],
+      "passes": true,
+      "review_status": "pedagogy",
+      "review_log": [
+        "correctness: 58 tests pass (57 unit + 1 integration), zero warnings",
+        "pedagogy: integration test covers full boot→task→I/O→exit cycle, solution file complete"
+      ],
       "solution": ".solution/6.10-phase1-integration.rs",
       "student_todo": [
         "tests/phase1_integration.rs:完整 Mock 集成测试"
